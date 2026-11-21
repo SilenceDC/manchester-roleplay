@@ -1,4 +1,5 @@
 name: Verify Turso connection
+# Integration check exercises the same adapter used by the data Worker.
 
 on:
   push:
