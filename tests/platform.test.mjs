@@ -5,6 +5,8 @@ import vm from "node:vm";
 
 const bot = await readFile(new URL("../bot/index.js", import.meta.url), "utf8");
 const map = await readFile(new URL("../map-data/index.js", import.meta.url), "utf8");
+const website = await readFile(new URL("../website/index.js", import.meta.url), "utf8");
+const data = await readFile(new URL("../data/index.js", import.meta.url), "utf8");
 
 function loadAutomod(source) {
   const start = source.indexOf("const AUTOMOD_PROFANITY =");
@@ -66,5 +68,27 @@ test("Gateway event failures schedule reconciliation instead of leaving a stuck 
 test("recovery scans are deliberately bounded into small resumable batches", () => {
   assert.equal((bot.match(/new URLSearchParams\(\{ limit: "10" \}\)/g) || []).length, 2);
   assert.equal((bot.match(/for \(let page = 0; page < 1; page\+\+\)/g) || []).length, 2);
-  assert.match(bot, /recovery scan is continuing; another pass is scheduled/);
+  assert.match(bot, /recovery scan is continuing; another pass is scheduled/i);
+});
+
+test("website forwards staff, CAD, and announcement APIs to the correct services", () => {
+  assert.ok(website.includes("env.BOT.fetch"), "staff and moderation routes must reach the bot service");
+  assert.ok(website.includes("env.DATA.fetch"), "CAD and data routes must reach the data service");
+  assert.ok(website.includes("/api/bolos"));
+  assert.ok(website.includes("/api/warnings"));
+  assert.ok(website.includes("/api/announcements"));
+});
+
+test("data API exposes the persistence routes used by the website and bot", () => {
+  for (const route of ["/health", "/meta/status", "/modlog-write", "/bolos", "/warning-create", "/announcement-upsert", "/cad/live", "/cad/overview"]) {
+    assert.ok(data.includes(route), "missing data API route: " + route);
+  }
+  assert.ok(data.includes("env.MANCHESTER_DB"), "data API must use its configured D1 binding");
+});
+
+test("map-data uses the dedicated map database and preserves live CAD upstream data", () => {
+  assert.ok(map.includes("env.ORIGIN_DATA.fetch"), "map service must proxy the shared data API");
+  assert.ok(map.includes("env.MAP_LOCATIONS_DB"), "map service must use its dedicated location database");
+  assert.ok(map.includes("transformLiveItems"), "map service must transform live world coordinates");
+  assert.ok(map.includes("snapshot.mapLocations"), "map service must attach searchable map reference data");
 });
