@@ -1,4 +1,5 @@
 name: Migrate Manchester core D1 data to Turso
+# Staged one-time import; production D1 and Workers remain unchanged.
 
 on:
   push:
