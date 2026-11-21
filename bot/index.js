@@ -778,8 +778,8 @@ export class ManchesterGateway extends DurableObject {
   }
   async alarm() {
     if (this.stopping) return;
-    if ((await this.ctx.storage.get("moderation_commands_version")) !== "ban-bolo-v1") {
-      try { const registration = await registerCommands(this.env); if (registration.ok) { await this.ctx.storage.put("moderation_commands_registered", true); await this.ctx.storage.put("moderation_commands_version", "ban-bolo-v1"); } } catch (error) { console.error("Moderation command registration:", error.message); }
+    if ((await this.ctx.storage.get("moderation_commands_version")) !== "manchester-roleplay-commands-v2") {
+      try { const registration = await registerCommands(this.env); if (registration.ok) { await this.ctx.storage.put("moderation_commands_registered", true); await this.ctx.storage.put("moderation_commands_version", "manchester-roleplay-commands-v2"); } } catch (error) { console.error("Moderation command registration:", error.message); }
     }
     if (this.socket && this.socket.readyState === WebSocket.CONNECTING) {
       await this.ctx.storage.setAlarm(Date.now() + 15000);
