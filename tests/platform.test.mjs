@@ -60,7 +60,7 @@ test("Gateway watchdog skips expensive scans while healthy", () => {
 test("Gateway event failures schedule reconciliation instead of leaving a stuck error state", () => {
   assert.match(bot, /Gateway event processing failed; reconciliation scheduled/);
   assert.match(bot, /this\.ctx\.storage\.setAlarm\(Date\.now\(\) \+ 10000\)/);
-  assert.match(bot, /Gateway socket error; reconnect scheduled/);
+  assert.match(bot, /Discord Gateway WebSocket error; reconnect scheduled/);
 });
 
 test("recovery scans are deliberately bounded into small resumable batches", () => {
