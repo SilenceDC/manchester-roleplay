@@ -24,7 +24,7 @@ function loadMapTransforms(source) {
 
 function loadCommandResponse(source) {
   const start = source.indexOf("function commandResponse(name)");
-  const end = source.indexOf("\\nexport default", start);
+  const end = source.indexOf("\nexport default", start);
   assert.ok(start >= 0 && end > start, "command response source block must exist");
   return vm.runInNewContext(source.slice(start, end) + "; commandResponse", {
     INVITE: "https://discord.gg/test",
@@ -34,7 +34,7 @@ function loadCommandResponse(source) {
 
 function loadSlashCommands(source) {
   const start = source.indexOf("const COMMANDS =");
-  const end = source.indexOf("\\n\\nfunction json", start);
+  const end = source.indexOf("\n\nfunction json", start);
   assert.ok(start >= 0 && end > start, "slash command definitions must exist");
   return vm.runInNewContext(source.slice(start, end) + "; COMMANDS");
 }
