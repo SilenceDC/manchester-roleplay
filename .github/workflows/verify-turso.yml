@@ -79,3 +79,8 @@ jobs:
           console.log("Existing application tables:", tables.length ? tables.join(", ") : "(none yet)");
           console.log("Credentials were not printed.");
           NODE
+      - name: Test the production data API Turso adapter against imported records
+        env:
+          TURSO_DATABASE: ${{ secrets.TURSO_DATABASE }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+        run: node tests/turso.integration.mjs
