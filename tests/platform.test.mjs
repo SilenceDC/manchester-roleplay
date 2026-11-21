@@ -137,3 +137,12 @@ test("the bot returns a valid immediate /ping response and Manchester descriptio
   assert.match(slashCommands.find(command => command.name === "ping").description, /Manchester Roleplay/);
   assert.match(bot, /moderation_commands_version.*"manchester-roleplay-commands-v2"/);
 });
+
+
+test("website caches live CAD snapshots and serves bounded stale data during upstream failures", () => {
+  assert.match(website, /CAD_LIVE_CACHE_TTL_MS = 60000/);
+  assert.match(website, /CAD_LIVE_STALE_MAX_MS = 600000/);
+  assert.match(website, /cadLiveResponseCache/);
+  assert.match(website, /stale:true,retryAfter/);
+  assert.match(website, /cacheAgeSeconds/);
+});
