@@ -71,3 +71,4 @@ jobs:
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/manchester-roleplay-data/content")"
           printf '%s' "$response" | jq -e '.success == true' >/dev/null
           echo "Manchester data Worker source deployed with Turso selected."
+# Re-run after adding the scoped Cloudflare Workers Scripts Edit token.
