@@ -64,6 +64,111 @@ const requireId = (value) => {
 };
 
 
+
+function tursoValue(value) {
+  if (value === null || value === undefined) return { type: "null" };
+  if (typeof value === "boolean") return { type: "integer", value: value ? "1" : "0" };
+  if (typeof value === "number") {
+    return Number.isInteger(value)
+      ? { type: "integer", value: String(value) }
+      : { type: "float", value: String(value) };
+  }
+  if (typeof value === "bigint") return { type: "integer", value: String(value) };
+  if (value instanceof ArrayBuffer) {
+    let binary = "";
+    for (const byte of new Uint8Array(value)) binary += String.fromCharCode(byte);
+    return { type: "blob", base64: btoa(binary) };
+  }
+  return { type: "text", value: String(value) };
+}
+
+function fromTursoValue(value) {
+  if (!value || value.type === "null") return null;
+  if (value.type === "integer") {
+    const number = Number(value.value);
+    return Number.isSafeInteger(number) ? number : value.value;
+  }
+  if (value.type === "float") return Number(value.value);
+  if (value.type === "text") return value.value ?? "";
+  if (value.type === "blob") return value.base64 || "";
+  return value.value ?? null;
+}
+
+class TursoStatement {
+  constructor(database, sql, args = []) {
+    this.database = database;
+    this.sql = sql;
+    this.args = args;
+  }
+  bind(...args) { return new TursoStatement(this.database, this.sql, args); }
+  async all() {
+    const result = await this.database.execute(this.sql, this.args);
+    const columns = result.cols || [];
+    const rows = (result.rows || []).map(row => Object.fromEntries(
+      columns.map((column, index) => [column.name, fromTursoValue(row[index])])
+    ));
+    return { results: rows, success: true, meta: { changes: Number(result.affected_row_count || 0), last_row_id: result.last_insert_rowid ?? null } };
+  }
+  async first() {
+    const result = await this.all();
+    return result.results[0] || null;
+  }
+  async run() {
+    const result = await this.database.execute(this.sql, this.args);
+    return { success: true, meta: { changes: Number(result.affected_row_count || 0), last_row_id: result.last_insert_rowid ?? null } };
+  }
+}
+
+class TursoDatabase {
+  constructor(url, token) {
+    const normalized = String(url).replace(/^libsql:\/\//i, "https://");
+    const parsed = new URL(normalized);
+    if (parsed.protocol !== "https:") throw new Error("Turso URL must use libsql:// or https://.");
+    this.endpoint = parsed.origin + "/v2/pipeline";
+    this.token = token;
+  }
+  prepare(sql) { return new TursoStatement(this, sql); }
+  async pipeline(requests) {
+    const response = await fetch(this.endpoint, {
+      method: "POST",
+      headers: { "authorization": "Bearer " + this.token, "content-type": "application/json" },
+      body: JSON.stringify({ baton: null, requests: [...requests, { type: "close" }] })
+    });
+    if (!response.ok) throw new Error("Turso database request failed (HTTP " + response.status + ").");
+    const payload = await response.json();
+    const error = (payload.results || []).find(item => item.type === "error" || item.response?.type === "error");
+    if (error) throw new Error("Turso SQL request failed: " + String(error.error?.message || error.response?.error?.message || "Unknown database error").slice(0, 300));
+    return (payload.results || []).map(item => item.response?.result || {});
+  }
+  async execute(sql, args = []) {
+    const [result] = await this.pipeline([{
+      type: "execute",
+      stmt: { sql, args: args.map(tursoValue), want_rows: true }
+    }]);
+    return result || {};
+  }
+  async batch(statements) {
+    const requests = [{ type: "execute", stmt: { sql: "BEGIN IMMEDIATE", want_rows: false } }];
+    for (const statement of statements) {
+      requests.push({ type: "execute", stmt: { sql: statement.sql, args: statement.args.map(tursoValue), want_rows: true } });
+    }
+    requests.push({ type: "execute", stmt: { sql: "COMMIT", want_rows: false } });
+    const results = await this.pipeline(requests);
+    return results.slice(1, -1).map(result => ({
+      success: true,
+      meta: { changes: Number(result.affected_row_count || 0), last_row_id: result.last_insert_rowid ?? null }
+    }));
+  }
+}
+
+function getDatabase(env) {
+  if (String(env.MANCHESTER_STORAGE_BACKEND || "d1").toLowerCase() === "turso") {
+    if (!env.TURSO_DATABASE_URL || !env.TURSO_AUTH_TOKEN) throw new Error("Turso storage is selected but its URL or authentication token is missing.");
+    return new TursoDatabase(env.TURSO_DATABASE_URL, env.TURSO_AUTH_TOKEN);
+  }
+  return db;
+}
+
 async function runRetention(db) {
  const now=new Date(), cutoff=days=>new Date(now.getTime()-days*86400000).toISOString();
  const results=await db.batch([
@@ -97,8 +202,9 @@ async function writeLog(db, log, id) {
 }
 
 export default {
-  async scheduled(controller, env, ctx) { ctx.waitUntil(runRetention(env.MANCHESTER_DB)); },
+  async scheduled(controller, env, ctx) { ctx.waitUntil(runRetention(getDatabase(env))); },
   async fetch(request, env) {
+    const db = getDatabase(env);
     const url = new URL(request.url);
     const cacheTtl = request.method === "GET" ? (dataReadCacheTtls[url.pathname] || 0) : 0;
     const cacheKey = url.pathname + url.search;
@@ -115,14 +221,14 @@ export default {
     };
     if (request.method === "GET" && url.pathname === "/health") {
       try {
-        const row = await env.MANCHESTER_DB.prepare("SELECT 1 AS ok").first();
+        const row = await db.prepare("SELECT 1 AS ok").first();
         const key = "__healthcheck:" + crypto.randomUUID();
         const stamp = new Date().toISOString();
-        await env.MANCHESTER_DB.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?)").bind(key, "ok", stamp).run();
-        const written = await env.MANCHESTER_DB.prepare("SELECT value FROM app_state WHERE key=?").bind(key).first();
-        await env.MANCHESTER_DB.prepare("DELETE FROM app_state WHERE key=?").bind(key).run();
+        await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?)").bind(key, "ok", stamp).run();
+        const written = await db.prepare("SELECT value FROM app_state WHERE key=?").bind(key).first();
+        await db.prepare("DELETE FROM app_state WHERE key=?").bind(key).run();
         const healthy = row?.ok === 1 && written?.value === "ok";
-        return reply({ service: "Manchester Roleplay Data API", status: healthy ? "healthy" : "degraded", storage: "D1", region: "EU", database_read_write_test: healthy ? "passed" : "failed" }, healthy ? 200 : 503);
+        return reply({ service: "Manchester Roleplay Data API", status: healthy ? "healthy" : "degraded", storage: String(env.MANCHESTER_STORAGE_BACKEND || "d1").toLowerCase() === "turso" ? "Turso" : "D1", region: "EU", database_read_write_test: healthy ? "passed" : "failed" }, healthy ? 200 : 503);
       } catch (error) {
         console.error("Data API health check failed", error);
         return reply({ service: "Manchester Roleplay Data API", status: "unavailable", database_read_write_test: "failed" }, 503);
@@ -135,17 +241,17 @@ export default {
     if (request.method === "GET" && url.pathname === "/meta/status") {
       try {
         const [bolos, warnings, logs, announcements, cadCalls, cadUnits, legacyMigration, storageEstimate, latestRetention] = await Promise.all([
-          env.MANCHESTER_DB.prepare("SELECT COUNT(*) AS count FROM ban_bolos").first(),
-          env.MANCHESTER_DB.prepare("SELECT COUNT(*) AS count FROM formal_warnings").first(),
-          env.MANCHESTER_DB.prepare("SELECT COUNT(*) AS count FROM moderation_logs").first(),
-          env.MANCHESTER_DB.prepare("SELECT COUNT(*) AS count FROM announcements").first(),
-          env.MANCHESTER_DB.prepare("SELECT COUNT(*) AS count FROM cad_calls").first(),
-          env.MANCHESTER_DB.prepare("SELECT COUNT(*) AS count FROM cad_units").first(),
-          env.MANCHESTER_DB.prepare("SELECT 1 AS done FROM schema_migrations WHERE version=2").first(),
-          env.MANCHESTER_DB.prepare("SELECT COALESCE(SUM(length(payload_json)),0) AS bytes FROM (SELECT payload_json FROM ban_bolos UNION ALL SELECT payload_json FROM formal_warnings UNION ALL SELECT payload_json FROM moderation_logs UNION ALL SELECT payload_json FROM announcements UNION ALL SELECT payload_json FROM cad_calls UNION ALL SELECT payload_json FROM cad_units)").first(),
-          env.MANCHESTER_DB.prepare("SELECT ran_at,warnings_deleted,moderation_logs_deleted,announcements_deleted,bolos_deleted,estimated_payload_bytes FROM retention_runs ORDER BY id DESC LIMIT 1").first()
+          db.prepare("SELECT COUNT(*) AS count FROM ban_bolos").first(),
+          db.prepare("SELECT COUNT(*) AS count FROM formal_warnings").first(),
+          db.prepare("SELECT COUNT(*) AS count FROM moderation_logs").first(),
+          db.prepare("SELECT COUNT(*) AS count FROM announcements").first(),
+          db.prepare("SELECT COUNT(*) AS count FROM cad_calls").first(),
+          db.prepare("SELECT COUNT(*) AS count FROM cad_units").first(),
+          db.prepare("SELECT 1 AS done FROM schema_migrations WHERE version=2").first(),
+          db.prepare("SELECT COALESCE(SUM(length(payload_json)),0) AS bytes FROM (SELECT payload_json FROM ban_bolos UNION ALL SELECT payload_json FROM formal_warnings UNION ALL SELECT payload_json FROM moderation_logs UNION ALL SELECT payload_json FROM announcements UNION ALL SELECT payload_json FROM cad_calls UNION ALL SELECT payload_json FROM cad_units)").first(),
+          db.prepare("SELECT ran_at,warnings_deleted,moderation_logs_deleted,announcements_deleted,bolos_deleted,estimated_payload_bytes FROM retention_runs ORDER BY id DESC LIMIT 1").first()
         ]);
-        return reply({ ok: true, storage: "D1", counts: { bolos: bolos.count, warnings: warnings.count, moderationLogs: logs.count, announcements: announcements.count, cadCalls: cadCalls.count, cadUnits: cadUnits.count }, storageMonitor: { estimatedRecordPayloadBytes: Number(storageEstimate?.bytes || 0), freePlanDatabaseLimitBytes: 524288000, estimatedPercentOfLimit: Number(((Number(storageEstimate?.bytes || 0) / 524288000) * 100).toFixed(4)), note: "Payload estimate only; excludes SQLite indexes and database overhead." }, retention: { policyDays: { warnings: 180, moderationLogs: 180, announcements: 30, resolvedBolosAfterResolution: 90 }, banActionLogs: "retained until a verified unban lifecycle exists", lastRun: latestRetention || null, auditLogs: "Discord-only; not deleted by this Worker" }, cad: "schema-ready-not-yet-enabled", legacyDataImported: Boolean(legacyMigration?.done) });
+        return reply({ ok: true, storage: String(env.MANCHESTER_STORAGE_BACKEND || "d1").toLowerCase() === "turso" ? "Turso" : "D1", counts: { bolos: bolos.count, warnings: warnings.count, moderationLogs: logs.count, announcements: announcements.count, cadCalls: cadCalls.count, cadUnits: cadUnits.count }, storageMonitor: { estimatedRecordPayloadBytes: Number(storageEstimate?.bytes || 0), freePlanDatabaseLimitBytes: 524288000, estimatedPercentOfLimit: Number(((Number(storageEstimate?.bytes || 0) / 524288000) * 100).toFixed(4)), note: "Payload estimate only; excludes SQLite indexes and database overhead." }, retention: { policyDays: { warnings: 180, moderationLogs: 180, announcements: 30, resolvedBolosAfterResolution: 90 }, banActionLogs: "retained until a verified unban lifecycle exists", lastRun: latestRetention || null, auditLogs: "Discord-only; not deleted by this Worker" }, cad: "schema-ready-not-yet-enabled", legacyDataImported: Boolean(legacyMigration?.done) });
       } catch (error) {
         console.error("Data API status failed", error);
         return reply({ ok: false, error: "Could not read data status." }, 503);
@@ -169,29 +275,29 @@ export default {
         const logs = Array.isArray(data.logs) ? data.logs.slice(0, 1000) : [];
         const announcements = Array.isArray(data.announcements) ? data.announcements.slice(0, 100) : [];
         let imported = { bolos: 0, warnings: 0, logs: 0, announcements: 0 };
-        for (const item of bolos) { await writeBolo(env.MANCHESTER_DB, item, true); imported.bolos++; }
+        for (const item of bolos) { await writeBolo(db, item, true); imported.bolos++; }
         for (let i = 0; i < warnings.length; i++) {
           const item = warnings[i] || {};
           const id = item.id || "legacy-warning-" + i + "-" + text(item.createdAt, 40) + "-" + text(item.staffId, 32);
-          await writeWarning(env.MANCHESTER_DB, item, id); imported.warnings++;
+          await writeWarning(db, item, id); imported.warnings++;
         }
         for (let i = 0; i < logs.length; i++) {
           const item = logs[i] || {};
           const id = item.id || "legacy-log-" + i + "-" + text(item.at || item.createdAt, 40);
-          await writeLog(env.MANCHESTER_DB, item, id); imported.logs++;
+          await writeLog(db, item, id); imported.logs++;
         }
         for (let i = 0; i < announcements.length; i++) {
           const item = announcements[i] || {};
           const id = text(item.id || item.messageId || item.discordMessageId || ("legacy-announcement-" + i + "-" + text(item.createdAt, 40)), 100);
-          await env.MANCHESTER_DB.prepare("INSERT OR IGNORE INTO announcements(id,created_at,edited_at,payload_json) VALUES(?,?,?,?)")
+          await db.prepare("INSERT OR IGNORE INTO announcements(id,created_at,edited_at,payload_json) VALUES(?,?,?,?)")
             .bind(requireId(id), iso(item.createdAt), text(item.editedAt, 64), JSON.stringify(item)).run();
           imported.announcements++;
         }
         if (data.lastModCommand) {
-          await env.MANCHESTER_DB.prepare("INSERT INTO app_state(key,value,updated_at) VALUES('last_mod_command',?,?) ON CONFLICT(key) DO UPDATE SET value=CASE WHEN CAST(app_state.value AS INTEGER)>CAST(excluded.value AS INTEGER) THEN app_state.value ELSE excluded.value END,updated_at=excluded.updated_at")
+          await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES('last_mod_command',?,?) ON CONFLICT(key) DO UPDATE SET value=CASE WHEN CAST(app_state.value AS INTEGER)>CAST(excluded.value AS INTEGER) THEN app_state.value ELSE excluded.value END,updated_at=excluded.updated_at")
             .bind(String(data.lastModCommand), new Date().toISOString()).run();
         }
-        await env.MANCHESTER_DB.prepare("INSERT OR IGNORE INTO schema_migrations(version,name,applied_at) VALUES(2,'legacy_durable_object_import',?)")
+        await db.prepare("INSERT OR IGNORE INTO schema_migrations(version,name,applied_at) VALUES(2,'legacy_durable_object_import',?)")
           .bind(new Date().toISOString()).run();
         return reply({ ok: true, imported, note: "Idempotent import: existing record IDs were not overwritten." });
       }
@@ -200,21 +306,21 @@ export default {
         const all = url.searchParams.get("all") === "1";
         const user = text(url.searchParams.get("user"), 100);
         const query = all
-          ? env.MANCHESTER_DB.prepare("SELECT payload_json FROM ban_bolos ORDER BY created_at DESC LIMIT 200")
-          : env.MANCHESTER_DB.prepare("SELECT payload_json FROM ban_bolos WHERE submitter_id=? ORDER BY created_at DESC LIMIT 200").bind(user);
+          ? db.prepare("SELECT payload_json FROM ban_bolos ORDER BY created_at DESC LIMIT 200")
+          : db.prepare("SELECT payload_json FROM ban_bolos WHERE submitter_id=? ORDER BY created_at DESC LIMIT 200").bind(user);
         const result = await query.all();
         return reply({ bolos: (result.results || []).map(rowPayload) });
       }
       if (url.pathname === "/bolo-create" && request.method === "POST") {
         const item = await readBody(16384);
         if (!item.player || !item.reason || !item.id) return reply({ ok: false, error: "Player, reason and ID are required." }, 400);
-        await writeBolo(env.MANCHESTER_DB, item, true);
+        await writeBolo(db, item, true);
         return reply({ ok: true });
       }
       if (url.pathname === "/bolo-update" && request.method === "POST") {
         const item = await readBody(16384);
         const id = requireId(item.id);
-        const row = await env.MANCHESTER_DB.prepare("SELECT payload_json FROM ban_bolos WHERE id=?").bind(id).first();
+        const row = await db.prepare("SELECT payload_json FROM ban_bolos WHERE id=?").bind(id).first();
         if (!row) return reply({ ok: false, error: "Ban BOLO not found." }, 404);
         const bolo = rowPayload(row);
         bolo.status = text(item.status, 40);
@@ -223,64 +329,64 @@ export default {
         bolo.updatedAt = iso(item.at);
         bolo.history = Array.isArray(bolo.history) ? bolo.history : [];
         bolo.history.push({ at: bolo.updatedAt, by: text(item.by, 100), byId: text(item.byId, 100), status: bolo.status, note: bolo.adminNote, punishment: bolo.punishment });
-        await writeBolo(env.MANCHESTER_DB, bolo, false);
+        await writeBolo(db, bolo, false);
         return reply({ ok: true, bolo });
       }
       if (url.pathname === "/bolo-message" && request.method === "POST") {
         const item = await readBody(8192);
         const id = requireId(item.id);
-        const row = await env.MANCHESTER_DB.prepare("SELECT payload_json FROM ban_bolos WHERE id=?").bind(id).first();
+        const row = await db.prepare("SELECT payload_json FROM ban_bolos WHERE id=?").bind(id).first();
         if (!row) return reply({ ok: false, error: "Ban BOLO not found." }, 404);
         const bolo = rowPayload(row);
         bolo.discordMessageId = text(item.messageId, 100);
         bolo.discordChannelId = text(item.channelId, 100);
-        await writeBolo(env.MANCHESTER_DB, bolo, false);
+        await writeBolo(db, bolo, false);
         return reply({ ok: true });
       }
       if (url.pathname === "/warnings" && request.method === "GET") {
         const all = url.searchParams.get("all") === "1";
         const user = text(url.searchParams.get("user"), 100);
         const query = all
-          ? env.MANCHESTER_DB.prepare("SELECT payload_json FROM formal_warnings ORDER BY created_at DESC LIMIT 200")
-          : env.MANCHESTER_DB.prepare("SELECT payload_json FROM formal_warnings WHERE staff_id=? ORDER BY created_at DESC LIMIT 200").bind(user);
+          ? db.prepare("SELECT payload_json FROM formal_warnings ORDER BY created_at DESC LIMIT 200")
+          : db.prepare("SELECT payload_json FROM formal_warnings WHERE staff_id=? ORDER BY created_at DESC LIMIT 200").bind(user);
         const result = await query.all();
         return reply({ warnings: (result.results || []).map(rowPayload) });
       }
       if (url.pathname === "/warning-create" && request.method === "POST") {
         const item = await readBody(16384);
         if (!item.player || !item.reason) return reply({ ok: false, error: "Player and reason are required." }, 400);
-        await writeWarning(env.MANCHESTER_DB, item);
+        await writeWarning(db, item);
         return reply({ ok: true });
       }
       if (url.pathname === "/modlog-write" && request.method === "POST") {
         const item = await readBody(16384);
-        await writeLog(env.MANCHESTER_DB, item);
+        await writeLog(db, item);
         return reply({ ok: true });
       }
       if (url.pathname === "/modlogs" && request.method === "GET") {
-        const result = await env.MANCHESTER_DB.prepare("SELECT payload_json FROM moderation_logs ORDER BY occurred_at DESC LIMIT 100").all();
+        const result = await db.prepare("SELECT payload_json FROM moderation_logs ORDER BY occurred_at DESC LIMIT 100").all();
         return reply({ logs: (result.results || []).map(rowPayload) });
       }
       if (url.pathname === "/modgate" && request.method === "POST") {
         const now = Date.now();
-        const result = await env.MANCHESTER_DB.prepare(
+        const result = await db.prepare(
           "INSERT INTO app_state(key,value,updated_at) VALUES('last_mod_command',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE CAST(app_state.value AS INTEGER)<=CAST(excluded.value AS INTEGER)-5000 RETURNING value"
         ).bind(String(now), new Date(now).toISOString()).first();
         if (!result) {
-          const previous = await env.MANCHESTER_DB.prepare("SELECT value FROM app_state WHERE key='last_mod_command'").first();
+          const previous = await db.prepare("SELECT value FROM app_state WHERE key='last_mod_command'").first();
           const wait = Math.max(1, 5000 - (now - Number(previous?.value || 0)));
           return reply({ allowed: false, message: "ER:LC accepts one command every five seconds. Wait " + Math.ceil(wait / 1000) + " seconds." }, 429);
         }
         return reply({ allowed: true });
       }
       if (url.pathname === "/announcements" && request.method === "GET") {
-        const result = await env.MANCHESTER_DB.prepare("SELECT payload_json FROM announcements ORDER BY created_at DESC LIMIT 50").all();
+        const result = await db.prepare("SELECT payload_json FROM announcements ORDER BY created_at DESC LIMIT 50").all();
         return reply({ announcements: (result.results || []).map(rowPayload) });
       }
       if (url.pathname === "/announcement-upsert" && request.method === "POST") {
         const item = await readBody(16384);
         const id = requireId(item.id || item.messageId);
-        await env.MANCHESTER_DB.prepare("INSERT INTO announcements(id,created_at,edited_at,payload_json) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET edited_at=excluded.edited_at,payload_json=excluded.payload_json")
+        await db.prepare("INSERT INTO announcements(id,created_at,edited_at,payload_json) VALUES(?,?,?,?) ON CONFLICT(id) DO UPDATE SET edited_at=excluded.edited_at,payload_json=excluded.payload_json")
           .bind(id, iso(item.createdAt), text(item.editedAt, 64), JSON.stringify(item)).run();
         return reply({ ok: true });
       }
@@ -288,7 +394,7 @@ export default {
       if (url.pathname === "/announcement-delete" && request.method === "POST") {
         const item = await readBody(8192);
         const id = requireId(item.id || item.messageId);
-        await env.MANCHESTER_DB.prepare("DELETE FROM announcements WHERE id=?").bind(id).run();
+        await db.prepare("DELETE FROM announcements WHERE id=?").bind(id).run();
         return reply({ ok: true });
       }
 
@@ -308,8 +414,8 @@ export default {
 
       if (url.pathname === "/cad/overview" && request.method === "GET") {
         const [unitRows, callRows] = await Promise.all([
-          env.MANCHESTER_DB.prepare("SELECT payload_json FROM cad_units ORDER BY callsign LIMIT 200").all(),
-          env.MANCHESTER_DB.prepare("SELECT payload_json FROM cad_calls ORDER BY created_at DESC LIMIT 100").all()
+          db.prepare("SELECT payload_json FROM cad_units ORDER BY callsign LIMIT 200").all(),
+          db.prepare("SELECT payload_json FROM cad_calls ORDER BY created_at DESC LIMIT 100").all()
         ]);
         return reply({
           units: (unitRows.results || []).map(rowPayload),
@@ -327,7 +433,7 @@ export default {
         if (!["PD", "FD", "EMS", "DOT"].includes(department)) return reply({ ok: false, error: "Choose PD, FD, EMS or DOT." }, 400);
         const status = statuses.includes(item.status) ? item.status : "available";
         const coord = value => { const n = Number(value); return Number.isFinite(n) ? Math.max(0, Math.min(100, n)) : null; };
-        const existingRow = await env.MANCHESTER_DB.prepare("SELECT payload_json FROM cad_units WHERE id=?").bind(id).first();
+        const existingRow = await db.prepare("SELECT payload_json FROM cad_units WHERE id=?").bind(id).first();
         const existingUnit = existingRow ? rowPayload(existingRow) : null;
         const createdById = existingUnit?.createdById || text(item.actorId, 100);
         const now = new Date().toISOString();
@@ -341,12 +447,12 @@ export default {
           memberIds: Array.isArray(item.memberIds) ? item.memberIds.map(x => text(x, 100)).filter(Boolean).slice(0, 8) : [],
           updatedAt: now
         };
-        await env.MANCHESTER_DB.prepare("INSERT INTO cad_units(id,callsign,department,status,current_call_id,updated_at,payload_json) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET callsign=excluded.callsign,department=excluded.department,status=excluded.status,current_call_id=excluded.current_call_id,updated_at=excluded.updated_at,payload_json=excluded.payload_json")
+        await db.prepare("INSERT INTO cad_units(id,callsign,department,status,current_call_id,updated_at,payload_json) VALUES(?,?,?,?,?,?,?) ON CONFLICT(id) DO UPDATE SET callsign=excluded.callsign,department=excluded.department,status=excluded.status,current_call_id=excluded.current_call_id,updated_at=excluded.updated_at,payload_json=excluded.payload_json")
           .bind(id, callsign, department, status, unit.currentCallId, now, JSON.stringify(unit)).run();
         if (Array.isArray(item.memberIds)) {
-          await env.MANCHESTER_DB.prepare("DELETE FROM cad_unit_members WHERE unit_id=?").bind(id).run();
+          await db.prepare("DELETE FROM cad_unit_members WHERE unit_id=?").bind(id).run();
           for (const memberId of unit.memberIds) {
-            await env.MANCHESTER_DB.prepare("INSERT OR IGNORE INTO cad_unit_members(id,unit_id,discord_user_id,role,joined_at) VALUES(?,?,?,?,?)")
+            await db.prepare("INSERT OR IGNORE INTO cad_unit_members(id,unit_id,discord_user_id,role,joined_at) VALUES(?,?,?,?,?)")
               .bind(crypto.randomUUID(), id, memberId, "member", now).run();
           }
         }
@@ -358,12 +464,12 @@ export default {
         const id = requireId(item.id);
         const actorId = text(item.actorId, 100);
         if (!actorId) return reply({ ok: false, error: "Your Discord identity could not be verified." }, 401);
-        const row = await env.MANCHESTER_DB.prepare("SELECT payload_json FROM cad_units WHERE id=?").bind(id).first();
+        const row = await db.prepare("SELECT payload_json FROM cad_units WHERE id=?").bind(id).first();
         if (!row) return reply({ ok: false, error: "Unit not found." }, 404);
         const unit = rowPayload(row);
         if (!unit.createdById || unit.createdById !== actorId) return reply({ ok: false, error: "Only the person who created this unit can delete it." }, 403);
-        await env.MANCHESTER_DB.prepare("DELETE FROM cad_unit_members WHERE unit_id=?").bind(id).run();
-        await env.MANCHESTER_DB.prepare("DELETE FROM cad_units WHERE id=?").bind(id).run();
+        await db.prepare("DELETE FROM cad_unit_members WHERE unit_id=?").bind(id).run();
+        await db.prepare("DELETE FROM cad_units WHERE id=?").bind(id).run();
         return reply({ ok: true, deleted: id });
       }
 if (url.pathname === "/cad/call-create" && request.method === "POST") {
@@ -385,9 +491,9 @@ if (url.pathname === "/cad/call-create" && request.method === "POST") {
           createdBy: text(item.createdBy, 100), createdAt: now, updatedAt: now,
           assignedUnits: []
         };
-        await env.MANCHESTER_DB.prepare("INSERT INTO cad_calls(id,call_number,call_type,priority,status,location,created_by,created_at,updated_at,payload_json) VALUES(?,?,?,?,?,?,?,?,?,?)")
+        await db.prepare("INSERT INTO cad_calls(id,call_number,call_type,priority,status,location,created_by,created_at,updated_at,payload_json) VALUES(?,?,?,?,?,?,?,?,?,?)")
           .bind(id, callNumber, callType, priority, "open", location, call.createdBy, now, now, JSON.stringify(call)).run();
-        await env.MANCHESTER_DB.prepare("INSERT INTO cad_call_events(id,call_id,event_type,actor_id,created_at,payload_json) VALUES(?,?,?,?,?,?)")
+        await db.prepare("INSERT INTO cad_call_events(id,call_id,event_type,actor_id,created_at,payload_json) VALUES(?,?,?,?,?,?)")
           .bind(crypto.randomUUID(), id, "created", call.createdBy, now, JSON.stringify({ description: call.description, priority })).run();
         return reply({ ok: true, call });
       }
@@ -395,7 +501,7 @@ if (url.pathname === "/cad/call-create" && request.method === "POST") {
       if (url.pathname === "/cad/call-update" && request.method === "POST") {
         const item = await readBody(16384);
         const id = requireId(item.id);
-        const row = await env.MANCHESTER_DB.prepare("SELECT payload_json FROM cad_calls WHERE id=?").bind(id).first();
+        const row = await db.prepare("SELECT payload_json FROM cad_calls WHERE id=?").bind(id).first();
         if (!row) return reply({ ok: false, error: "CAD call not found." }, 404);
         const call = rowPayload(row);
         const statuses = ["open", "dispatched", "onscene", "closed"];
@@ -404,9 +510,9 @@ if (url.pathname === "/cad/call-create" && request.method === "POST") {
         if (item.description !== undefined) call.description = text(item.description, 1200).trim();
         if (item.assignedUnits !== undefined) call.assignedUnits = Array.isArray(item.assignedUnits) ? item.assignedUnits.map(x => text(x, 100)).filter(Boolean).slice(0, 20) : [];
         call.updatedAt = new Date().toISOString();
-        await env.MANCHESTER_DB.prepare("UPDATE cad_calls SET status=?,updated_at=?,payload_json=? WHERE id=?")
+        await db.prepare("UPDATE cad_calls SET status=?,updated_at=?,payload_json=? WHERE id=?")
           .bind(call.status, call.updatedAt, JSON.stringify(call), id).run();
-        await env.MANCHESTER_DB.prepare("INSERT INTO cad_call_events(id,call_id,event_type,actor_id,created_at,payload_json) VALUES(?,?,?,?,?,?)")
+        await db.prepare("INSERT INTO cad_call_events(id,call_id,event_type,actor_id,created_at,payload_json) VALUES(?,?,?,?,?,?)")
           .bind(crypto.randomUUID(), id, text(item.eventType || "updated", 40), text(item.actorId, 100), call.updatedAt, JSON.stringify({ status: call.status, assignedUnits: call.assignedUnits })).run();
         return reply({ ok: true, call });
       }
