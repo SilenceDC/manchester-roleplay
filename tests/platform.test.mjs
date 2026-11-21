@@ -22,8 +22,27 @@ function loadMapTransforms(source) {
   return vm.runInNewContext(source.slice(start, end) + "; ({ mapPxToLegacy, mapToLegacyFormula })");
 }
 
+function loadCommandResponse(source) {
+  const start = source.indexOf("function commandResponse(name)");
+  const end = source.indexOf("\\nexport default", start);
+  assert.ok(start >= 0 && end > start, "command response source block must exist");
+  return vm.runInNewContext(source.slice(start, end) + "; commandResponse", {
+    INVITE: "https://discord.gg/test",
+    SITE_URL: "https://example.test"
+  });
+}
+
+function loadSlashCommands(source) {
+  const start = source.indexOf("const COMMANDS =");
+  const end = source.indexOf("\\n\\nfunction json", start);
+  assert.ok(start >= 0 && end > start, "slash command definitions must exist");
+  return vm.runInNewContext(source.slice(start, end) + "; COMMANDS");
+}
+
 const automodViolation = loadAutomod(bot);
 const { mapPxToLegacy, mapToLegacyFormula } = loadMapTransforms(map);
+const commandResponse = loadCommandResponse(bot);
+const slashCommands = loadSlashCommands(bot);
 
 test("automod leaves ordinary conversation alone", () => {
   assert.equal(automodViolation("Welcome to Manchester Roleplay"), "");
@@ -108,4 +127,13 @@ test("bot's HTTP interaction endpoint handles Discord PING and slash commands", 
   assert.match(bot, /if \(interaction\.type === 1\)[\s\S]*?return json\(\{ type: 1 \}\)/);
   assert.match(bot, /interaction\.type === 2[\s\S]*?commandResponse\(name\)/);
   assert.match(bot, /ping: "Pong! Manchester Roleplay bot is online/);
+});
+
+
+test("the bot returns a valid immediate /ping response and Manchester descriptions", () => {
+  const response = commandResponse("ping");
+  assert.equal(response.type, 4);
+  assert.match(response.data.content, /Pong! Manchester Roleplay bot is online/);
+  assert.match(slashCommands.find(command => command.name === "ping").description, /Manchester Roleplay/);
+  assert.match(bot, /moderation_commands_version.*"manchester-roleplay-commands-v2"/);
 });
