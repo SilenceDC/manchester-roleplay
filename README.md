@@ -18,7 +18,7 @@ Private source repository for the Manchester Roleplay ER:LC community platform.
 - Production deployment is manual through **Deploy to Cloudflare** in GitHub Actions.
 - The deployment workflow uploads Worker source only. It deliberately does not change Cloudflare bindings, secrets, D1 database IDs, Durable Object namespaces, compatibility dates, routes, or Cron Triggers.
 
-To enable GitHub-initiated production releases, add a repository Actions secret named `CLOUDFLARE_API_TOKEN` with the Cloudflare account permission **Workers Scripts:Edit**. The account ID is already recorded in the workflow. Choose the Worker to deploy and run the workflow manually from `main`; the CI test job must pass first.
+To enable GitHub-initiated production releases, add a repository Actions secret named `CLOUDFLARE_API_TOKEN` with the Cloudflare account permission **Workers Scripts Write**. The account ID is already recorded in the workflow. Choose the Worker to deploy and run the workflow manually from `main`; the CI test job must pass first.
 
 The Discord and ER:LC application credentials are stored as GitHub repository secrets and separately as Cloudflare Worker secrets where the running services need them. Never commit secret values or paste them into source files.
 
