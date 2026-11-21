@@ -3,8 +3,6 @@ name: Migrate Manchester core D1 data to Turso
 on:
   push:
     branches: [main]
-    paths:
-      - ".github/workflows/migrate-core-to-turso.yml"
   workflow_dispatch:
 
 permissions:
@@ -16,6 +14,7 @@ concurrency:
 
 jobs:
   migrate:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Run staged Manchester core D1 import'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -174,7 +173,10 @@ jobs:
           console.log("Manchester core D1 → Turso import completed.");
           console.log("Source export:", exportState.result.filename);
           console.log("Rows in Turso after import:");
-          for (const table of tables) console.log(`  ${table}: ${actual[table]}`);
+          for (const table of tables) {
+            console.log(`  ${table}: ${actual[table]} (export statements: ${expected[table]})`);
+            if (actual[table] !== expected[table]) throw new Error(`Row-count verification mismatch for ${table}.`);
+          }
           console.log("D1 source was exported read-only and was not modified.");
           console.log("Live Workers and production bindings were not changed.");
           NODE
