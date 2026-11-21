@@ -2,6 +2,7 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import vm from "node:vm";
+import { TursoDatabase, getDatabase } from "../data/index.js";
 
 const bot = await readFile(new URL("../bot/index.js", import.meta.url), "utf8");
 const map = await readFile(new URL("../map-data/index.js", import.meta.url), "utf8");
@@ -145,4 +146,78 @@ test("website caches live CAD snapshots and serves bounded stale data during ups
   assert.match(website, /cadLiveResponseCache/);
   assert.match(website, /stale:true,retryAfter/);
   assert.match(website, /cacheAgeSeconds/);
+});
+
+
+test("Turso adapter maps prepared statements and SQLite values over Hrana", async () => {
+  const originalFetch = globalThis.fetch;
+  const requests = [];
+  globalThis.fetch = async (url, init) => {
+    requests.push({ url: String(url), body: JSON.parse(init.body), authorization: init.headers.authorization });
+    return new Response(JSON.stringify({
+      results: [
+        { type: "ok", response: { type: "execute", result: {
+          cols: [{ name: "ok" }, { name: "label" }],
+          rows: [[{ type: "integer", value: "1" }, { type: "text", value: "Manchester" }]],
+          affected_row_count: 0
+        } } },
+        { type: "ok", response: { type: "close" } }
+      ]
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  };
+  try {
+    const db = new TursoDatabase("libsql://example-org.turso.io", "test-token");
+    const row = await db.prepare("SELECT ? AS ok, ? AS label").bind(1, "Manchester").first();
+    assert.deepEqual(row, { ok: 1, label: "Manchester" });
+    assert.equal(requests[0].url, "https://example-org.turso.io/v2/pipeline");
+    assert.equal(requests[0].authorization, "Bearer test-token");
+    assert.deepEqual(requests[0].body.requests[0].stmt.args, [
+      { type: "integer", value: "1" },
+      { type: "text", value: "Manchester" }
+    ]);
+    assert.equal(requests[0].body.requests.at(-1).type, "close");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Turso adapter executes D1-style batches as one transaction", async () => {
+  const originalFetch = globalThis.fetch;
+  let captured;
+  globalThis.fetch = async (_url, init) => {
+    captured = JSON.parse(init.body);
+    return new Response(JSON.stringify({ results: [
+      { type: "ok", response: { type: "execute", result: {} } },
+      { type: "ok", response: { type: "execute", result: { affected_row_count: 2 } } },
+      { type: "ok", response: { type: "execute", result: { affected_row_count: 3 } } },
+      { type: "ok", response: { type: "execute", result: {} } },
+      { type: "ok", response: { type: "close" } }
+    ] }), { status: 200 });
+  };
+  try {
+    const db = new TursoDatabase("https://example-org.turso.io", "test-token");
+    const results = await db.batch([
+      db.prepare("DELETE FROM a WHERE id=?").bind(1),
+      db.prepare("DELETE FROM b WHERE id=?").bind(2)
+    ]);
+    assert.deepEqual(results.map(x => x.meta.changes), [2, 3]);
+    assert.equal(captured.requests[0].stmt.sql, "BEGIN IMMEDIATE");
+    assert.equal(captured.requests[1].stmt.sql, "DELETE FROM a WHERE id=?");
+    assert.equal(captured.requests[3].stmt.sql, "COMMIT");
+    assert.equal(captured.requests.at(-1).type, "close");
+  } finally {
+    globalThis.fetch = originalFetch;
+  }
+});
+
+test("Manchester data API keeps D1 as the safe default until an explicit Turso cutover", () => {
+  const d1 = { marker: "existing D1 binding" };
+  assert.equal(getDatabase({ MANCHESTER_DB: d1 }), d1);
+  assert.throws(() => getDatabase({ MANCHESTER_STORAGE_BACKEND: "turso" }), /URL or authentication token is missing/);
+  const db = getDatabase({
+    MANCHESTER_STORAGE_BACKEND: "turso",
+    TURSO_DATABASE_URL: "libsql://example-org.turso.io",
+    TURSO_AUTH_TOKEN: "test-token"
+  });
+  assert.ok(db instanceof TursoDatabase);
 });
