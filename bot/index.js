@@ -540,11 +540,15 @@ export class ManchesterGateway extends DurableObject {
       });
       socket.addEventListener("message", (event) => {
         this.onMessage(socket, event.data).catch((e) => {
-          this.state("error", { detail: e.message }).catch(() => {});
+          const detail = String(e?.message || e).slice(0, 220);
+          this.state("recovering", { detail: "Gateway event processing failed; reconciliation scheduled: " + detail })
+            .then(() => this.ctx.storage.setAlarm(Date.now() + 10000))
+            .catch(() => {});
         });
       });
       socket.addEventListener("error", () => {
-        this.state("error", { detail: "Discord Gateway WebSocket error" }).catch(() => {});
+        this.state("reconnecting", { detail: "Discord Gateway WebSocket error; reconnect scheduled" }).catch(() => {});
+        try { socket.close(4000, "Gateway socket error"); } catch {}
       });
       socket.addEventListener("close", (event) => {
         if (this.socket === socket) this.socket = null;
