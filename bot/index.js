@@ -453,8 +453,12 @@ export class ManchesterGateway extends DurableObject {
     }
     if (path === "/recover" && request.method === "POST") {
       const current = await this.ctx.storage.get("gateway_status") || {};
+      const outageStarted = await this.ctx.storage.get("outage_started_at");
+      if (current.status === "online" && !outageStarted) {
+        return json({ ok: true, complete: true, skipped: true, status: "online", detail: "Gateway is healthy; no recovery scan is needed." });
+      }
       if (current.status !== "online" && current.status !== "recovering") return json({ ok: false, status: current.status || "not_started", detail: "Gateway is not ready for recovery yet." });
-      return json(await this.runRecoveryScan("five-minute scheduled watchdog"));
+      return json(await this.runRecoveryScan("outage recovery watchdog"));
     }
     if (path === "/start") {
       this.stopping = false;
@@ -646,8 +650,8 @@ export class ManchesterGateway extends DurableObject {
     let cursor = await this.ctx.storage.get("recovery_general_cursor") || null;
     let scanned = 0, complete = false;
     const initial = !cursor;
-    for (let page = 0; page < 5; page++) {
-      const query = new URLSearchParams({ limit: "100" });
+    for (let page = 0; page < 1; page++) {
+      const query = new URLSearchParams({ limit: "10" });
       if (cursor) query.set("after", cursor);
       const rows = await this.discordApi("/channels/" + CHANNELS.general + "/messages?" + query.toString());
       if (!Array.isArray(rows) || !rows.length) { complete = true; break; }
@@ -659,7 +663,7 @@ export class ManchesterGateway extends DurableObject {
         await this.ctx.storage.put("recovery_general_cursor", cursor);
         scanned++;
       }
-      if (initial || rows.length < 100) { complete = true; break; }
+      if (initial || rows.length < 10) { complete = true; break; }
     }
     return { complete, scanned, cursor };
   }
@@ -667,8 +671,8 @@ export class ManchesterGateway extends DurableObject {
     let cursor = await this.ctx.storage.get("recovery_audit_cursor") || null;
     let scanned = 0, complete = false;
     const initial = !cursor, cutoff = Date.now() - 24 * 60 * 60 * 1000;
-    for (let page = 0; page < 5; page++) {
-      const query = new URLSearchParams({ limit: "100" });
+    for (let page = 0; page < 1; page++) {
+      const query = new URLSearchParams({ limit: "10" });
       if (cursor) query.set("after", cursor);
       const result = await this.discordApi("/guilds/" + GUILD_ID + "/audit-logs?" + query.toString());
       const rows = result.audit_log_entries || [];
@@ -681,19 +685,19 @@ export class ManchesterGateway extends DurableObject {
         cursor = entry.id;
         await this.ctx.storage.put("recovery_audit_cursor", cursor);
       }
-      if (initial || rows.length < 100) { complete = true; break; }
+      if (initial || rows.length < 10) { complete = true; break; }
     }
     return { complete, scanned, cursor };
   }
   async flushPendingDeliveries() {
     let dataQueue = await this.ctx.storage.get("pending_data_logs") || [];
-    for (let i = 0; i < Math.min(25, dataQueue.length); i++) {
+    for (let i = 0, attempts = Math.min(10, dataQueue.length); i < attempts; i++) {
       const row = dataQueue[0];
       try { const response = await dataRequest(this.env, "/modlog-write", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(row) }); if (!response.ok) break; dataQueue.shift(); await this.ctx.storage.put("pending_data_logs", dataQueue); }
       catch (error) { console.error("Pending website log retry failed:", error.message); break; }
     }
     let discordQueue = await this.ctx.storage.get("pending_discord_logs") || [];
-    for (let i = 0; i < Math.min(25, discordQueue.length); i++) {
+    for (let i = 0, attempts = Math.min(10, discordQueue.length); i < attempts; i++) {
       const item = discordQueue[0];
       try { await discordChannelMessage(this.env, item.target, item.payload); discordQueue.shift(); await this.ctx.storage.put("pending_discord_logs", discordQueue); }
       catch (error) { console.error("Pending Discord audit delivery retry failed:", error.message); break; }
