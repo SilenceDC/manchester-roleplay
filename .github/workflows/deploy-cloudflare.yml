@@ -1,0 +1,90 @@
+name: Deploy to Cloudflare
+
+on:
+  workflow_dispatch:
+    inputs:
+      component:
+        description: Worker to deploy
+        required: true
+        type: choice
+        options:
+          - bot
+          - website
+          - data
+          - map-data
+          - all
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manchester-roleplay-cloudflare-production
+  cancel-in-progress: false
+
+jobs:
+  test:
+    name: Test production source
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - name: Run syntax and regression checks
+        run: npm run check
+
+  deploy:
+    name: Deploy selected Worker(s)
+    needs: test
+    if: github.ref == 'refs/heads/main'
+    runs-on: ubuntu-latest
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Confirm Cloudflare deployment credential exists
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+        run: |
+          if [ -z "$CLOUDFLARE_API_TOKEN" ]; then
+            echo "::error::Add the CLOUDFLARE_API_TOKEN repository secret before running a production deployment."
+            exit 1
+          fi
+      - name: Upload selected Worker source without changing runtime configuration
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "4554703e1e32b26e50be67bf7e0475ec"
+          COMPONENT: ${{ inputs.component }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          deploy_worker() {
+            local worker="$1"
+            local source="$2"
+            echo "Uploading $source to $worker"
+            local response
+            response="$(curl --silent --show-error --fail-with-body \
+              -X PUT \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -F 'metadata={"main_module":"index.js"};type=application/json' \
+              -F "index.js=@${source};type=application/javascript+module" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/$worker/content")"
+            printf '%s' "$response" | jq -e '.success == true' >/dev/null
+            echo "Cloudflare accepted $worker source."
+          }
+
+          case "$COMPONENT" in
+            bot) deploy_worker "manchester-roleplay-bot" "bot/index.js" ;;
+            website) deploy_worker "manchester-roleplay-site" "website/index.js" ;;
+            data) deploy_worker "manchester-roleplay-data" "data/index.js" ;;
+            map-data) deploy_worker "manchester-roleplay-map-data" "map-data/index.js" ;;
+            all)
+              deploy_worker "manchester-roleplay-data" "data/index.js"
+              deploy_worker "manchester-roleplay-map-data" "map-data/index.js"
+              deploy_worker "manchester-roleplay-bot" "bot/index.js"
+              deploy_worker "manchester-roleplay-site" "website/index.js"
+              ;;
+            *) echo "::error::Unsupported component: $COMPONENT"; exit 1 ;;
+          esac

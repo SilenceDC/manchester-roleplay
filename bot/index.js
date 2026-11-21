@@ -8,10 +8,10 @@ const PUBLIC_KEY = "61eaafd4c8e2b5531497e7e7682393d80fd19567186670df7c7802124573
 const SITE_URL = "https://manchester-roleplay-site.greatermanchesterroleplay.workers.dev";
 const INVITE = "https://discord.gg/7q2Hr63YH";
 const COMMANDS = [
-  { name: "ping", description: "Check whether Texas State Roleplay bot is online.", type: 1 },
-  { name: "help", description: "See the Texas State Roleplay bot commands.", type: 1 },
-  { name: "server", description: "Get the Texas State Roleplay Discord invite.", type: 1 },
-  { name: "website", description: "Get the Texas State Roleplay website.", type: 1 },
+  { name: "ping", description: "Check whether Manchester Roleplay bot is online.", type: 1 },
+  { name: "help", description: "See the Manchester Roleplay bot commands.", type: 1 },
+  { name: "server", description: "Get the Manchester Roleplay Discord invite.", type: 1 },
+  { name: "website", description: "Get the Manchester Roleplay website.", type: 1 },
   { name: "departments", description: "View the community's roleplay departments.", type: 1 },
   { name: "rules", description: "Read the community standards reminder.", type: 1 },
   { name: "erlc", description: "View live ER:LC server status.", type: 1 },
@@ -103,7 +103,7 @@ async function erlcInteraction(name,env){
   else if(name==="queue"){title="Server queue";lines=erlcList(data.Queue);if(!lines.length)lines=["The queue is empty."]}
   else if(name==="calls"){title="Emergency calls";lines=erlcList(data.EmergencyCalls);if(!lines.length)lines=["No emergency calls reported."]}
   else if(name==="vehicles"){title="Server vehicles";lines=erlcList(data.Vehicles);if(!lines.length)lines=["No vehicles reported."]}
-  else lines=["Server: "+(data.Name||"Texas State Roleplay"),"Players: "+(data.CurrentPlayers??"Unknown")+" / "+(data.MaxPlayers??"Unknown"),"Join key: "+(data.JoinKey||"Not provided"),"Team balance: "+(data.TeamBalance===true?"Enabled":data.TeamBalance===false?"Disabled":"Unknown")];
+  else lines=["Server: "+(data.Name||"Manchester Roleplay"),"Players: "+(data.CurrentPlayers??"Unknown")+" / "+(data.MaxPlayers??"Unknown"),"Join key: "+(data.JoinKey||"Not provided"),"Team balance: "+(data.TeamBalance===true?"Enabled":data.TeamBalance===false?"Disabled":"Unknown")];
   return {type:4,data:{content:("**"+title+"**\n"+lines.join("\n")).slice(0,1900),flags:64,allowed_mentions:{parse:[]}}};
  }catch(e){return {type:4,data:{content:"ER:LC integration error: "+String(e.message||e).slice(0,350),flags:64,allowed_mentions:{parse:[]}}}}
 }
@@ -118,7 +118,7 @@ async function moderationRun(env, interaction, name) {
  const opts=Object.fromEntries((interaction.data?.options||[]).map(x=>[x.name,x.value]));
  const user=interaction.member?.user||interaction.user||{};
  if(name==="modlogs"){ if(!owner&&!ia&&!admin) return reply("Internal Affairs, Admin or Ownership access is required."); const r=await dataRequest(env, "/modlogs"); const d=await r.json(); const rows=(d.logs||[]).slice(0,12); return reply("**Recent moderation records**\n"+(rows.length?rows.map(x=>"- "+x.at+" · "+x.action+" · "+x.player+" · "+x.staff+" · "+(x.ok?"Success":"Failed")+" · "+x.reason).join("\n"):"No records yet.")); }
- if(name==="kick"&&!mod) return reply("The Texas State Roleplay Staff role or higher is required.");
+ if(name==="kick"&&!mod) return reply("The Manchester Roleplay Staff role or higher is required.");
  if(["ban","unban","erlc-command"].includes(name)&&!admin) return reply("Admin or Ownership role is required.");
  let player=String(opts.player||"").trim(), reason=String(opts.reason||"").replace(/[\r\n]/g," ").trim().slice(0,160), command="";
  if(["kick","ban","unban"].includes(name)){
@@ -157,7 +157,7 @@ async function banBoloInteraction(env, interaction) {
  const admin=owner||roles.includes("1573038142963978441");
  const staff=admin||roles.includes("1573028899405693049");
  const reply=(content)=>({type:4,data:{content,allowed_mentions:{parse:[]}}});
- if(!staff)return reply("Texas State Roleplay Staff or Admin access is required to submit a Ban BOLO.");
+ if(!staff)return reply("Manchester Roleplay Staff or Admin access is required to submit a Ban BOLO.");
  if(interaction.channel_id && interaction.channel_id!==CHANNELS.commands)return reply("Ban BOLO submissions are only available in the designated Commands channel.");
  const opts=Object.fromEntries((interaction.data?.options||[]).map(x=>[x.name,x.value]));
  const player=String(opts.player||"").trim(),reason=String(opts.reason||"").trim();
@@ -205,11 +205,11 @@ async function banBoloReviewInteraction(env, interaction) {
 
 function commandResponse(name) {
   const messages = {
-    ping: "Pong! Texas State Roleplay bot is online. ✅",
-    help: "**Texas State Roleplay bot**\n/ping — bot status\n/help — show commands\n/erlc — server status\n/players — online players\n/kick — moderator action (Staff+)\n/ban and /unban — Admin+\n/ban-bolo — submit a ban request for Admin review (Staff+)\n/erlc-command — approved server commands (Admin+)\n/modlogs — Internal Affairs, Admin and Ownership",
-    server: "Join Texas State Roleplay: " + INVITE,
-    website: "Texas State Roleplay website: " + SITE_URL,
-    departments: "**Roleplay departments**\n🚓 Texas State Police\n🚒 Texas Fire & Rescue\n🚑 Texas EMS\n\nCheck the community Discord for recruitment information: " + INVITE,
+    ping: "Pong! Manchester Roleplay bot is online. ✅",
+    help: "**Manchester Roleplay bot**\n/ping — bot status\n/help — show commands\n/erlc — server status\n/players — online players\n/kick — moderator action (Staff+)\n/ban and /unban — Admin+\n/ban-bolo — submit a ban request for Admin review (Staff+)\n/erlc-command — approved server commands (Admin+)\n/modlogs — Internal Affairs, Admin and Ownership",
+    server: "Join Manchester Roleplay: " + INVITE,
+    website: "Manchester Roleplay website: " + SITE_URL,
+    departments: "**Roleplay departments**\n🚓 Greater Manchester Police\n🚒 Greater Manchester Fire & Rescue\n🚑 North West Ambulance Service\n\nCheck the community Discord for recruitment information: " + INVITE,
     rules: "**Community standards**\n• Respect everyone.\n• Keep roleplay fair and avoid exploiting.\n• Follow community rules and session-host guidance.\n• Help new members feel welcome.\nSee the Discord server for the full rules."
   };
   return { type: 4, data: { content: messages[name] || "I don't recognise that command. Use /help.", allowed_mentions: { parse: [] } } };
@@ -259,7 +259,7 @@ export default {
         dataMigration = { status: "unavailable", reason: String(e.message || e).slice(0, 220) };
       }
       return json({
-        service: "Texas State Roleplay Discord bot",
+        service: "Manchester Roleplay Discord bot",
         application_id: APP_ID,
         test_server_id: GUILD_ID,
         token_configured: Boolean(tokenFrom(env)),
@@ -277,7 +277,7 @@ export default {
       const parts=serverKey.split("-");
       if(parts.length!==2||!parts[1]) return json({ok:false,error:"Could not derive the ER:LC internal server ID from the configured server key."},400);
       const authorizationUrl="https://api.erlc.gg/server-owners/server/"+encodeURIComponent(parts[1])+"/authorize/249265190143097686";
-      return json({ok:true,authorization_url:authorizationUrl,instructions:"Open this link while signed in to the Roblox account that owns the Texas State Roleplay private server, then approve Texas State Roleplay Management."});
+      return json({ok:true,authorization_url:authorizationUrl,instructions:"Open this link while signed in to the Roblox account that owns the Manchester Roleplay private server, then approve Manchester Roleplay Management."});
     }
     if (request.method === "GET" && url.pathname === "/erlc/status") {
       try { const d=await erlcServerData(env); return json({ok:true,server:d.Name,current_players:d.CurrentPlayers,max_players:d.MaxPlayers,team_balance:d.TeamBalance}); }
@@ -304,7 +304,7 @@ export default {
       if(!botToken) return json({ok:false,error:"Discord bot token is not configured."},503);
       const mr=await fetch("https://discord.com/api/v10/guilds/"+GUILD_ID+"/members/"+user.id,{headers:{authorization:"Bot "+botToken}});
       const member=await mr.json().catch(()=>({}));
-      if(!mr.ok||!Array.isArray(member.roles)) return json({ok:false,error:mr.status===404?"You must be a member of the Texas State Roleplay Discord server.":"Could not verify Discord server membership (HTTP "+mr.status+"). Please try again."},mr.status===404?403:502);
+      if(!mr.ok||!Array.isArray(member.roles)) return json({ok:false,error:mr.status===404?"You must be a member of the Manchester Roleplay Discord server.":"Could not verify Discord server membership (HTTP "+mr.status+"). Please try again."},mr.status===404?403:502);
       const roles=member.roles, owner=roles.includes("1573038226510192864");
       const admin=owner||roles.includes("1573038142963978441"), ia=roles.includes("1573038132289343609"), staff=roles.includes("1573028899405693049");
       const canKick=admin||staff, canManage=admin, canViewLogs=admin||ia;
@@ -582,7 +582,7 @@ export class ManchesterGateway extends DurableObject {
         socket.send(JSON.stringify({ op: 6, d: { token: tokenFrom(this.env), session_id: savedSession, seq: savedSequence } }));
         await this.state("resuming", { detail: "Discord Hello received; attempting session resume" });
       } else {
-        socket.send(JSON.stringify({ op: 2, d: { token: tokenFrom(this.env), intents: 33287, properties: { os: "cloudflare-workers", browser: "manchester-roleplay", device: "manchester-roleplay" }, presence: { status: "online", since: null, activities: [{ name: "Texas State Roleplay | ER:LC", type: 0 }], afk: false } } }));
+        socket.send(JSON.stringify({ op: 2, d: { token: tokenFrom(this.env), intents: 33287, properties: { os: "cloudflare-workers", browser: "manchester-roleplay", device: "manchester-roleplay" }, presence: { status: "online", since: null, activities: [{ name: "Manchester Roleplay | ER:LC", type: 0 }], afk: false } } }));
         await this.state("identifying", { detail: "Discord Hello received; sending Identify" });
       }
       await this.ctx.storage.setAlarm(Date.now() + Math.max(1000, Math.floor(this.heartbeatInterval * 0.75)));
@@ -778,8 +778,8 @@ export class ManchesterGateway extends DurableObject {
   }
   async alarm() {
     if (this.stopping) return;
-    if ((await this.ctx.storage.get("moderation_commands_version")) !== "ban-bolo-v1") {
-      try { const registration = await registerCommands(this.env); if (registration.ok) { await this.ctx.storage.put("moderation_commands_registered", true); await this.ctx.storage.put("moderation_commands_version", "ban-bolo-v1"); } } catch (error) { console.error("Moderation command registration:", error.message); }
+    if ((await this.ctx.storage.get("moderation_commands_version")) !== "manchester-roleplay-commands-v2") {
+      try { const registration = await registerCommands(this.env); if (registration.ok) { await this.ctx.storage.put("moderation_commands_registered", true); await this.ctx.storage.put("moderation_commands_version", "manchester-roleplay-commands-v2"); } } catch (error) { console.error("Moderation command registration:", error.message); }
     }
     if (this.socket && this.socket.readyState === WebSocket.CONNECTING) {
       await this.ctx.storage.setAlarm(Date.now() + 15000);
