@@ -1,4 +1,5 @@
 name: Deploy Manchester data Worker to Turso
+# Controlled cutover after the read-only adapter integration check passed.
 
 on:
   push:
