@@ -122,10 +122,10 @@ export default {
         const written = await env.MANCHESTER_DB.prepare("SELECT value FROM app_state WHERE key=?").bind(key).first();
         await env.MANCHESTER_DB.prepare("DELETE FROM app_state WHERE key=?").bind(key).run();
         const healthy = row?.ok === 1 && written?.value === "ok";
-        return reply({ service: "Texas State Roleplay Data API", status: healthy ? "healthy" : "degraded", storage: "D1", region: "EU", database_read_write_test: healthy ? "passed" : "failed" }, healthy ? 200 : 503);
+        return reply({ service: "Manchester Roleplay Data API", status: healthy ? "healthy" : "degraded", storage: "D1", region: "EU", database_read_write_test: healthy ? "passed" : "failed" }, healthy ? 200 : 503);
       } catch (error) {
         console.error("Data API health check failed", error);
-        return reply({ service: "Texas State Roleplay Data API", status: "unavailable", database_read_write_test: "failed" }, 503);
+        return reply({ service: "Manchester Roleplay Data API", status: "unavailable", database_read_write_test: "failed" }, 503);
       }
     }
 
