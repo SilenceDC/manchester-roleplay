@@ -20,7 +20,7 @@ jobs:
     steps:
       - name: Export Manchester core D1 and import into Turso
         env:
-          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_D1_READ_TOKEN: ${{ secrets.CLOUDFLARE_D1_READ_TOKEN }}
           TURSO_DATABASE: ${{ secrets.TURSO_DATABASE }}
           TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
           CF_ACCOUNT_ID: "4554703e1e32b26e50be67bf7e0475ec"
@@ -35,9 +35,9 @@ jobs:
           ];
           const token = process.env.TURSO_DATABASE;
           const rawUrl = process.env.TURSO_DATABASE_URL;
-          const cfToken = process.env.CLOUDFLARE_API_TOKEN;
+          const cfToken = process.env.CLOUDFLARE_D1_READ_TOKEN;
           if (!token || !rawUrl || !cfToken) {
-            throw new Error("A required repository secret is missing. Check TURSO_DATABASE, TURSO_DATABASE_URL and CLOUDFLARE_API_TOKEN.");
+            throw new Error("A required repository secret is missing. Check TURSO_DATABASE, TURSO_DATABASE_URL and CLOUDFLARE_D1_READ_TOKEN.");
           }
 
           const normalizedUrl = rawUrl.replace(/^libsql:\/\//i, "https://");
