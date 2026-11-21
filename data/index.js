@@ -154,7 +154,7 @@ class TursoDatabase {
     }
     requests.push({ type: "execute", stmt: { sql: "COMMIT", want_rows: false } });
     const results = await this.pipeline(requests);
-    return results.slice(1, -1).map(result => ({
+    return results.slice(1, -2).map(result => ({
       success: true,
       meta: { changes: Number(result.affected_row_count || 0), last_row_id: result.last_insert_rowid ?? null }
     }));
