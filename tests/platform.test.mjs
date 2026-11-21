@@ -96,7 +96,7 @@ test("map-data uses the dedicated map database and preserves live CAD upstream d
 
 test("all production entrypoints use Manchester Roleplay branding", () => {
   for (const [name, source] of [["bot", bot], ["website", website], ["data", data], ["map-data", map]]) {
-    assert.doesNotMatch(source, /Texas State Roleplay|Texas State Police|Texas Fire &(?:amp;)? Rescue|Texas EMS|\\bTexas\\b/i, name + " contains outdated Texas branding");
+    assert.doesNotMatch(source, /Texas State Roleplay|Texas State Police|Texas Fire &(?:amp;)? Rescue|Texas EMS|\bTexas\b/i, name + " contains outdated Texas branding");
   }
   for (const department of ["Greater Manchester Police", "Greater Manchester Fire & Rescue", "North West Ambulance Service"]) {
     assert.ok(bot.includes(department), "bot is missing department: " + department);
@@ -105,7 +105,7 @@ test("all production entrypoints use Manchester Roleplay branding", () => {
 });
 
 test("bot's HTTP interaction endpoint handles Discord PING and slash commands", () => {
-  assert.match(bot, /if \(interaction\.type === 1\)[\\s\\S]*?return json\(\{ type: 1 \}\)/);
-  assert.match(bot, /interaction\.type === 2[\\s\\S]*?commandResponse\(name\)/);
+  assert.match(bot, /if \(interaction\.type === 1\)[\s\S]*?return json\(\{ type: 1 \}\)/);
+  assert.match(bot, /interaction\.type === 2[\s\S]*?commandResponse\(name\)/);
   assert.match(bot, /ping: "Pong! Manchester Roleplay bot is online/);
 });
