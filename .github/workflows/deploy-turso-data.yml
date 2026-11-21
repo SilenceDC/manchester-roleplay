@@ -1,0 +1,72 @@
+name: Deploy Manchester data Worker to Turso
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: manchester-roleplay-turso-cutover
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Deploy Manchester data Worker to Turso'
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Check out source
+        uses: actions/checkout@v4
+      - name: Validate source and adapter tests
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+      - run: npm run check
+      - name: Configure Turso secrets on the Manchester data Worker
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "4554703e1e32b26e50be67bf7e0475ec"
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+          TURSO_AUTH_TOKEN: ${{ secrets.TURSO_DATABASE }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          : "${CLOUDFLARE_API_TOKEN:?Missing CLOUDFLARE_API_TOKEN}"
+          : "${TURSO_DATABASE_URL:?Missing TURSO_DATABASE_URL}"
+          : "${TURSO_AUTH_TOKEN:?Missing TURSO_DATABASE}"
+          set_secret() {
+            local name="$1"
+            local value="$2"
+            local payload
+            payload="$(jq -n --arg name "$name" --arg text "$value" '{name:$name,text:$text,type:"secret_text"}')"
+            local response
+            response="$(curl --silent --show-error --fail-with-body \
+              -X PUT \
+              -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+              -H "Content-Type: application/json" \
+              --data "$payload" \
+              "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/manchester-roleplay-data/secrets")"
+            printf '%s' "$response" | jq -e '.success == true' >/dev/null
+            echo "Configured Worker secret binding: $name"
+          }
+          set_secret "TURSO_DATABASE_URL" "$TURSO_DATABASE_URL"
+          set_secret "TURSO_AUTH_TOKEN" "$TURSO_AUTH_TOKEN"
+          set_secret "MANCHESTER_STORAGE_BACKEND" "turso"
+      - name: Deploy data Worker source
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: "4554703e1e32b26e50be67bf7e0475ec"
+        shell: bash
+        run: |
+          set -euo pipefail
+          response="$(curl --silent --show-error --fail-with-body \
+            -X PUT \
+            -H "Authorization: Bearer $CLOUDFLARE_API_TOKEN" \
+            -F 'metadata={"main_module":"index.js"};type=application/json' \
+            -F "index.js=@data/index.js;type=application/javascript+module" \
+            "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/manchester-roleplay-data/content")"
+          printf '%s' "$response" | jq -e '.success == true' >/dev/null
+          echo "Manchester data Worker source deployed with Turso selected."
