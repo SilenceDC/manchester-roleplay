@@ -30,8 +30,8 @@ jobs:
 
           let endpoint;
           try {
-            const parsed = new URL(rawUrl);
-            if (parsed.protocol === "libsql:") parsed.protocol = "https:";
+            const normalizedUrl = rawUrl.replace(/^libsql:\/\//i, "https://");
+            const parsed = new URL(normalizedUrl);
             if (parsed.protocol !== "https:") throw new Error("Unsupported database URL scheme");
             endpoint = parsed.origin + "/v2/pipeline";
           } catch {
