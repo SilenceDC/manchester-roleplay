@@ -1,0 +1,81 @@
+name: Verify Turso connection
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/verify-turso.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Verify Turso credentials and database access
+        env:
+          TURSO_DATABASE: ${{ secrets.TURSO_DATABASE }}
+          TURSO_DATABASE_URL: ${{ secrets.TURSO_DATABASE_URL }}
+        run: |
+          set -euo pipefail
+          node <<'NODE'
+          const token = process.env.TURSO_DATABASE;
+          const rawUrl = process.env.TURSO_DATABASE_URL;
+          if (!token || !rawUrl) {
+            console.error("Missing TURSO_DATABASE or TURSO_DATABASE_URL repository secret.");
+            process.exit(1);
+          }
+
+          let endpoint;
+          try {
+            const parsed = new URL(rawUrl);
+            if (parsed.protocol === "libsql:") parsed.protocol = "https:";
+            if (parsed.protocol !== "https:") throw new Error("Unsupported database URL scheme");
+            endpoint = parsed.origin + "/v2/pipeline";
+          } catch {
+            console.error("TURSO_DATABASE_URL is not a valid Turso database URL.");
+            process.exit(1);
+          }
+
+          const response = await fetch(endpoint, {
+            method: "POST",
+            headers: {
+              "Authorization": `Bearer ${token}`,
+              "Content-Type": "application/json"
+            },
+            body: JSON.stringify({
+              baton: null,
+              requests: [
+                { type: "execute", stmt: { sql: "SELECT sqlite_version() AS sqlite_version" } },
+                { type: "execute", stmt: { sql: "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name" } },
+                { type: "close" }
+              ]
+            })
+          });
+
+          if (!response.ok) {
+            console.error(`Turso returned HTTP ${response.status}. Check the database URL and token permissions.`);
+            process.exit(1);
+          }
+
+          const payload = await response.json();
+          const failed = (payload.results || []).find(item => item.type === "error");
+          if (failed) {
+            console.error("Turso rejected the database query. Check the token permissions and database URL.");
+            process.exit(1);
+          }
+
+          const results = (payload.results || []).filter(item => item.type === "ok").map(item => item.response?.result);
+          if (!results[0]?.rows?.[0]?.[0]) {
+            console.error("Turso connection succeeded but did not return a SQLite version.");
+            process.exit(1);
+          }
+
+          const tables = (results[1]?.rows || []).map(row => row[0]);
+          console.log("Turso connection: successful");
+          console.log("SQLite version:", results[0].rows[0][0].value);
+          console.log("Existing application tables:", tables.length ? tables.join(", ") : "(none yet)");
+          console.log("Credentials were not printed.");
+          NODE
