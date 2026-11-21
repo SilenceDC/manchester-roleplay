@@ -166,7 +166,7 @@ function getDatabase(env) {
     if (!env.TURSO_DATABASE_URL || !env.TURSO_AUTH_TOKEN) throw new Error("Turso storage is selected but its URL or authentication token is missing.");
     return new TursoDatabase(env.TURSO_DATABASE_URL, env.TURSO_AUTH_TOKEN);
   }
-  return db;
+  return env.MANCHESTER_DB;
 }
 
 async function runRetention(db) {
