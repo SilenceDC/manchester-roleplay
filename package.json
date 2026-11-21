@@ -1,0 +1,9 @@
+{
+  "name": "manchester-roleplay",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "check": "node --check bot/index.js && node --check website/index.js && node --check data/index.js && node --check map-data/index.js && node --test",
+    "test": "node --test"
+  }
+}
