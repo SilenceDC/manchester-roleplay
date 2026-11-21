@@ -1,22 +1,31 @@
 # Manchester Roleplay
 
-Private source repository for the Manchester Roleplay community platform.
+Private source repository for the Manchester Roleplay ER:LC community platform.
 
-## Current source import
+## Production services
 
-The following production Cloudflare Worker entrypoints were copied into this repository as a source snapshot:
+| Repository path | Cloudflare Worker | Responsibility |
+| --- | --- | --- |
+| `bot/index.js` | `manchester-roleplay-bot` | Discord bot, slash commands, Gateway automod and moderation |
+| `website/index.js` | `manchester-roleplay-site` | Public website, Discord staff sign-in, moderation dashboard and CAD |
+| `data/index.js` | `manchester-roleplay-data` | Shared API and D1-backed application records |
+| `map-data/index.js` | `manchester-roleplay-map-data` | Live CAD map proxy, coordinate transforms and map location index |
 
-- `bot/index.js` — Discord bot and Gateway worker
-- `website/index.js` — public website and staff dashboard
-- `data/index.js` — shared application API and data service
-- `map-data/index.js` — CAD live-map data and location indexing
+## Checks and deployment
 
-## Important migration status
+- `npm run check` validates JavaScript syntax and runs the regression suite.
+- GitHub Actions runs checks for pushes and pull requests.
+- Production deployment is manual through **Deploy to Cloudflare** in GitHub Actions.
+- The deployment workflow uploads Worker source only. It deliberately does not change Cloudflare bindings, secrets, D1 database IDs, Durable Object namespaces, compatibility dates, routes, or Cron Triggers.
 
-This is a source backup/import, **not yet a Render-ready deployment**. The code currently uses Cloudflare Workers APIs and bindings (including Durable Objects and D1). Each service must be adapted to a compatible runtime and its storage/queue needs before deploying to Render.
+To enable GitHub-initiated production releases, add a repository Actions secret named `CLOUDFLARE_API_TOKEN` with the Cloudflare account permission **Workers Scripts:Edit**. The account ID is already recorded in the workflow. Choose the Worker to deploy and run the workflow manually from `main`; the CI test job must pass first.
 
-Keep the existing Cloudflare services running until the Render replacements have been migrated, configured, and tested. Do not put API keys, Discord bot tokens, OAuth secrets, or other credentials in this repository; configure them as environment secrets in the eventual hosting platform.
+The Discord and ER:LC application credentials are stored as GitHub repository secrets and separately as Cloudflare Worker secrets where the running services need them. Never commit secret values or paste them into source files.
 
-## Scope
+## Runtime configuration
 
-Only the four Manchester Roleplay Workers listed above are included. Legacy TSRP/Government projects and Workers are intentionally excluded.
+Cloudflare is the production runtime. Existing Worker bindings and persistent resources are maintained in Cloudflare and must be preserved when deploying code. The bot uses a Durable Object for the Discord Gateway; the data and map services use separate D1 databases.
+
+## Project boundaries
+
+Only the four Manchester Roleplay Workers listed above are included. Legacy TSRP/Government projects and Workers are intentionally excluded and must not be changed as part of this project.
