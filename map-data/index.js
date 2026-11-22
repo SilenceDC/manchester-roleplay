@@ -232,16 +232,20 @@ function fitMapCalibration(points) {
 }
 
 function mapToLegacyFormula(apiLocationX, apiLocationZ, calibration = null) {
-  // ER:LC Tools' verified Fall 2026 map conversion. API LocationX/LocationZ
-  // are half-stud map units, not world studs. The Fall map is rotated 90°:
-  // map X follows world Z; map Y runs opposite world X. The exact conversion
-  // to the 120,000px Fall map is 2000/180 px per world stud.
-  // API -> Fall map pixels: X = 22.222... * LocationX + 508.533...
-  //                         Y = 22.222... * LocationZ + 512.867...
-  // Do not override this with a fitted calibration; the official transform
-  // was checked against live in-game positions and postal/building markers.
-  const mapPxX = PUBLISHED_MAP_SCALE * Number(apiLocationX) + PUBLISHED_MAP_OFFSET_X;
-  const mapPxY = PUBLISHED_MAP_SCALE * Number(apiLocationZ) + PUBLISHED_MAP_OFFSET_Y;
+  // Prefer the robust multi-point fit built from live ER:LC positions matched
+  // to ERLC Tools building-number coordinates. The published transform is only
+  // the fallback when a usable fit is unavailable.
+  const scaleX = Number(calibration?.scale_x);
+  const offsetX = Number(calibration?.offset_x);
+  const scaleZ = Number(calibration?.scale_z);
+  const offsetZ = Number(calibration?.offset_z);
+  const hasFit = calibration?.mode === "multi-point-affine" &&
+    [scaleX, offsetX, scaleZ, offsetZ].every(Number.isFinite) &&
+    scaleX >= 18 && scaleX <= 26 && scaleZ >= 18 && scaleZ <= 26;
+  const mapPxX = (hasFit ? scaleX : PUBLISHED_MAP_SCALE) * Number(apiLocationX) +
+    (hasFit ? offsetX : PUBLISHED_MAP_OFFSET_X);
+  const mapPxY = (hasFit ? scaleZ : PUBLISHED_MAP_SCALE) * Number(apiLocationZ) +
+    (hasFit ? offsetZ : PUBLISHED_MAP_OFFSET_Y);
   return mapPxToLegacy(mapPxX, mapPxY);
 }
 
