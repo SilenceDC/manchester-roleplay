@@ -9,7 +9,7 @@ function diagnosticPlayerMatches(item, identifier) {
   const separator = player.lastIndexOf(":");
   const playerName = separator >= 0 ? player.slice(0, separator).trim() : player;
   const playerId = separator >= 0 ? player.slice(separator + 1).trim() : "";
-  if (/^\\d+$/.test(expected)) return playerId === expected;
+  if (/^\d+$/.test(expected)) return playerId === expected;
   return playerName.toLowerCase() === expected.toLowerCase();
 }
 
