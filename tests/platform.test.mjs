@@ -17,7 +17,7 @@ function loadAutomod(source) {
 }
 
 function loadMapTransforms(source) {
-  const start = source.indexOf("function mapPxToLegacy");
+  const start = source.indexOf("function normalizeMapText");
   const end = source.indexOf("function addCors", start);
   assert.ok(start >= 0 && end > start, "map transform source block must exist");
   return vm.runInNewContext(source.slice(start, end) + "; ({ mapPxToLegacy, mapToLegacyFormula, fitMapCalibration, transformLiveItems })");
@@ -137,7 +137,7 @@ test("map diagnostics fail closed and only capture the configured player by ID o
   assert.ok(map.includes("mapLastDiagnosticAt"));
   assert.ok(map.includes("transformedLocation"));
   assert.ok(map.includes("diagnosticLocation(getLocation(item))"));
-  assert.ok(map.indexOf("rawLocation: diagnosticLocation") < map.indexOf("transformLiveItems(snapshot.players, calibration,"));
+  assert.ok(map.indexOf("rawLocation: diagnosticLocation") < map.indexOf("transformLiveItems(snapshot.players, calibration)"));
   assert.ok(map.indexOf('console.info("[CAD_MAP_DIAGNOSTIC]"') > map.indexOf("transformLiveItems(snapshot.players, calibration)"));
 });
 
