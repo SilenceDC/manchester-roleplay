@@ -20,7 +20,7 @@ function loadMapTransforms(source) {
   const start = source.indexOf("function mapPxToLegacy");
   const end = source.indexOf("function addCors", start);
   assert.ok(start >= 0 && end > start, "map transform source block must exist");
-  return vm.runInNewContext(source.slice(start, end) + "; ({ mapPxToLegacy, mapToLegacyFormula, fitMapCalibration, resolveStaticBuildingPosition })");
+  return vm.runInNewContext(source.slice(start, end) + "; ({ mapPxToLegacy, mapToLegacyFormula, fitMapCalibration, transformLiveItems })");
 }
 
 function loadCommandResponse(source) {
@@ -41,7 +41,7 @@ function loadSlashCommands(source) {
 }
 
 const automodViolation = loadAutomod(bot);
-const { mapPxToLegacy, mapToLegacyFormula, fitMapCalibration, resolveStaticBuildingPosition } = loadMapTransforms(map);
+const { mapPxToLegacy, mapToLegacyFormula, fitMapCalibration, transformLiveItems } = loadMapTransforms(map);
 const commandResponse = loadCommandResponse(bot);
 const slashCommands = loadSlashCommands(bot);
 
@@ -98,13 +98,28 @@ test("live map transform uses the published Fall conversion", () => {
     ...mapPxToLegacy((2000 / 90) * 1250 + 508.533, (2000 / 90) * -750 + 512.867)
   });
 });
-test("collision-part locations snap to the exact matching static building point", () => {
-  const position = resolveStaticBuildingPosition({
-    PostalCode: "315",
-    BuildingNumber: "3151",
-    StreetName: "CollisionPart_Curb"
-  });
-  assert.deepEqual({ ...position }, { ...mapPxToLegacy(59471, 78234) });
+test("live player coordinates remain authoritative even when ER:LC reports a collision-part street", () => {
+  const player = {
+    Player: "Doggamer383:3574132593",
+    Location: {
+      LocationX: 2579.878,
+      LocationZ: 3574.214,
+      PostalCode: "315",
+      StreetName: "CollisionPart_Curb",
+      BuildingNumber: "3151"
+    }
+  };
+  transformLiveItems([player], null);
+  assert.deepEqual(
+    { ...player.Location },
+    {
+      LocationX: mapToLegacyFormula(2579.878, 3574.214).LocationX,
+      LocationZ: mapToLegacyFormula(2579.878, 3574.214).LocationZ,
+      PostalCode: "315",
+      StreetName: "CollisionPart_Curb",
+      BuildingNumber: "3151"
+    }
+  );
 });
 
 test("map diagnostics fail closed and only capture the configured player by ID or case-insensitive username", () => {
