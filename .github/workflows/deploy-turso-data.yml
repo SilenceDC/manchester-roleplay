@@ -1,4 +1,4 @@
-name: Deploy Manchester data Worker to Turso
+name: Deploy Texas data Worker to Turso
 # Controlled cutover after the read-only adapter integration check passed.
 
 on:
@@ -15,7 +15,7 @@ concurrency:
 
 jobs:
   deploy:
-    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Deploy Manchester data Worker to Turso'
+    if: github.event_name == 'workflow_dispatch' || github.event.head_commit.message == 'Deploy Texas data Worker to Turso'
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
@@ -26,7 +26,7 @@ jobs:
         with:
           node-version: 22
       - run: npm run check
-      - name: Configure Turso secrets on the Manchester data Worker
+      - name: Configure Turso secrets on the Texas data Worker
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: "4554703e1e32b26e50be67bf7e0475ec"
@@ -70,5 +70,5 @@ jobs:
             -F "index.js=@data/index.js;type=application/javascript+module" \
             "https://api.cloudflare.com/client/v4/accounts/$CLOUDFLARE_ACCOUNT_ID/workers/scripts/manchester-roleplay-data/content")"
           printf '%s' "$response" | jq -e '.success == true' >/dev/null
-          echo "Manchester data Worker source deployed with Turso selected."
+          echo "Texas data Worker source deployed with Turso selected."
 # Re-run after adding the scoped Cloudflare Workers Scripts Edit token.
