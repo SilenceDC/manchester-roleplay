@@ -18,9 +18,9 @@ function loadAutomod(source) {
 
 function loadMapTransforms(source) {
   const start = source.indexOf("function mapPxToLegacy");
-  const end = source.indexOf("function transformLiveItems", start);
+  const end = source.indexOf("function addCors", start);
   assert.ok(start >= 0 && end > start, "map transform source block must exist");
-  return vm.runInNewContext(source.slice(start, end) + "; ({ mapPxToLegacy, mapToLegacyFormula, fitMapCalibration })");
+  return vm.runInNewContext(source.slice(start, end) + "; ({ mapPxToLegacy, mapToLegacyFormula, fitMapCalibration, resolveStaticBuildingPosition })");
 }
 
 function loadCommandResponse(source) {
@@ -41,7 +41,7 @@ function loadSlashCommands(source) {
 }
 
 const automodViolation = loadAutomod(bot);
-const { mapPxToLegacy, mapToLegacyFormula, fitMapCalibration } = loadMapTransforms(map);
+const { mapPxToLegacy, mapToLegacyFormula, fitMapCalibration, resolveStaticBuildingPosition } = loadMapTransforms(map);
 const commandResponse = loadCommandResponse(bot);
 const slashCommands = loadSlashCommands(bot);
 
@@ -93,7 +93,7 @@ test("multi-point calibration rejects outliers and fits both map axes", () => {
 });
 
 test("live map transform uses the published Fall conversion", () => {
-  const result = mapToLegacyFormula(1250, -750, calibration);
+  const result = mapToLegacyFormula(1250, -750, {});
   assert.deepEqual({ ...result }, {
     ...mapPxToLegacy((2000 / 90) * 1250 + 508.533, (2000 / 90) * -750 + 512.867)
   });
@@ -122,7 +122,7 @@ test("map diagnostics fail closed and only capture the configured player by ID o
   assert.ok(map.includes("mapLastDiagnosticAt"));
   assert.ok(map.includes("transformedLocation"));
   assert.ok(map.includes("diagnosticLocation(getLocation(item))"));
-  assert.ok(map.indexOf("rawLocation: diagnosticLocation") < map.indexOf("transformLiveItems(snapshot.players, calibration)"));
+  assert.ok(map.indexOf("rawLocation: diagnosticLocation") < map.indexOf("transformLiveItems(snapshot.players, calibration,"));
   assert.ok(map.indexOf('console.info("[CAD_MAP_DIAGNOSTIC]"') > map.indexOf("transformLiveItems(snapshot.players, calibration)"));
 });
 
