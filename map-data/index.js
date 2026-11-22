@@ -232,20 +232,16 @@ function fitMapCalibration(points) {
 }
 
 function mapToLegacyFormula(apiLocationX, apiLocationZ, calibration = null) {
-  // Prefer the robust multi-point fit built from live ER:LC positions matched
-  // to ERLC Tools building-number coordinates. The published transform is only
-  // the fallback when a usable fit is unavailable.
-  const scaleX = Number(calibration?.scale_x);
-  const offsetX = Number(calibration?.offset_x);
-  const scaleZ = Number(calibration?.scale_z);
-  const offsetZ = Number(calibration?.offset_z);
-  const hasFit = calibration?.mode === "multi-point-affine" &&
-    [scaleX, offsetX, scaleZ, offsetZ].every(Number.isFinite) &&
-    scaleX >= 18 && scaleX <= 26 && scaleZ >= 18 && scaleZ <= 26;
-  const mapPxX = (hasFit ? scaleX : PUBLISHED_MAP_SCALE) * Number(apiLocationX) +
-    (hasFit ? offsetX : PUBLISHED_MAP_OFFSET_X);
-  const mapPxY = (hasFit ? scaleZ : PUBLISHED_MAP_SCALE) * Number(apiLocationZ) +
-    (hasFit ? offsetZ : PUBLISHED_MAP_OFFSET_Y);
+  // ER:LC Tools' verified Fall 2026 map conversion. API LocationX/LocationZ
+  // are half-stud map units, not world studs. The Fall map is rotated 90°:
+  // map X follows world Z; map Y runs opposite world X. The exact conversion
+  // to the 120,000px Fall map is 2000/180 px per world stud.
+  // API -> Fall map pixels: X = 22.222... * LocationX + 508.533...
+  //                         Y = 22.222... * LocationZ + 512.867...
+  // Do not override this with a fitted calibration; the official transform
+  // was checked against live in-game positions and postal/building markers.
+  const mapPxX = PUBLISHED_MAP_SCALE * Number(apiLocationX) + PUBLISHED_MAP_OFFSET_X;
+  const mapPxY = PUBLISHED_MAP_SCALE * Number(apiLocationZ) + PUBLISHED_MAP_OFFSET_Y;
   return mapPxToLegacy(mapPxX, mapPxY);
 }
 
@@ -285,14 +281,30 @@ async function loadMapCalibration(db) {
   };
 }
 
-function transformLiveItems(items, calibration) {
+const FALLBACK_STATIC_BUILDINGS = new Map([
+  // ERLC Tools Fall 2026 mapdata-fall2026.json: building 3151, postal 315.
+  ["315|3151", mapPxToLegacy(59471, 78234)]
+]);
+
+function resolveStaticBuildingPosition(loc, staticBuildings = null) {
+  const postal = String(loc?.PostalCode ?? loc?.postal ?? "").trim();
+  const building = String(loc?.BuildingNumber ?? loc?.building ?? "").trim();
+  if (!postal || !building) return null;
+  return staticBuildings?.get(postal + "|" + building) ||
+    FALLBACK_STATIC_BUILDINGS.get(postal + "|" + building) || null;
+}
+
+function transformLiveItems(items, calibration, staticBuildings = null) {
   if (!Array.isArray(items)) return;
   for (const item of items) {
     const loc = getLocation(item);
     if (!loc) continue;
     const coords = readWorldCoordinates(item, loc);
     if (!coords) continue;
-    const transformed = mapToLegacyFormula(coords.x, coords.z, calibration);
+    const street = normalizeMapText(loc.StreetName || loc.street);
+    const invalidStreet = /^(roadalignmentindicator|whiteline|collisionpart)/.test(street);
+    const buildingPosition = invalidStreet ? resolveStaticBuildingPosition(loc, staticBuildings) : null;
+    const transformed = buildingPosition || mapToLegacyFormula(coords.x, coords.z, calibration);
     loc.LocationX = transformed.LocationX;
     loc.LocationZ = transformed.LocationZ;
     if (loc.x !== undefined) loc.x = transformed.LocationX;
@@ -318,7 +330,12 @@ async function buildLocationIndex(db, calibration = null) {
 
   const prefixPostals = new Set((prefixRows.results || []).map(row => String(row.postal_code || "")));
   const result = [];
+  const staticBuildings = new Map();
   for (const row of staticRows.results || []) {
+    if (row.kind === "building_number" && row.building_number) {
+      const key = String(row.postal_code || "") + "|" + String(row.building_number);
+      staticBuildings.set(key, mapPxToLegacy(Number(row.map_x), Number(row.map_y)));
+    }
     const coords = mapPxToLegacy(Number(row.map_x), Number(row.map_y));
     const postal = String(row.postal_code || "");
     const postalLabel = row.kind === "postal" && prefixPostals.has(postal) ? "Postal " + postal : postal;
@@ -368,7 +385,8 @@ async function buildLocationIndex(db, calibration = null) {
     items: result,
     count: Number(stats?.count || 0),
     staticCount: Number(staticStats?.count || 0),
-    prefixPostals: [...prefixPostals]
+    prefixPostals: [...prefixPostals],
+    staticBuildings
   };
 }
 
@@ -467,11 +485,21 @@ export default {
       };
     }
 
-    // Keep raw world coordinates in the dedicated map database, then translate the live
-    // values for the current CAD renderer (which still uses its legacy plotting function).
-    transformLiveItems(snapshot.players, calibration);
-    transformLiveItems(snapshot.vehicles, calibration);
-    transformLiveItems(snapshot.emergencyCalls, calibration);
+    let index = null;
+    try {
+      index = await buildLocationIndex(env.MAP_LOCATIONS_DB, calibration);
+    } catch (error) {
+      console.error("Could not load stored map locations; live CAD data remains available.", String(error?.message || error));
+    }
+
+    // Keep raw coordinates in the dedicated map database. When ER:LC reports
+    // a collision-part street instead of a real street, prefer the exact
+    // building-number point from ERLC Tools rather than plotting a bad curb
+    // coordinate into an adjacent postal block.
+    const staticBuildings = index?.staticBuildings || null;
+    transformLiveItems(snapshot.players, calibration, staticBuildings);
+    transformLiveItems(snapshot.vehicles, calibration, staticBuildings);
+    transformLiveItems(snapshot.emergencyCalls, calibration, staticBuildings);
 
     if (diagnosticPlayers?.length) {
       const diagnostic = diagnosticPlayers.map(entry => {
@@ -492,8 +520,7 @@ export default {
       }
     }
 
-    try {
-      const index = await buildLocationIndex(env.MAP_LOCATIONS_DB, calibration);
+    if (index) {
       const liveKeys = new Set();
       for (const item of [
         ...(Array.isArray(snapshot.players) ? snapshot.players : []),
@@ -520,12 +547,7 @@ export default {
         attribution: "Map reference data by ERLC Tools (https://erlc-tools.com); free to use, credit appreciated",
         calibration: calibration?.mode || "published-fallback", calibrationDetails: calibration
       };
-      // The current CAD resolver searches liveSnapshot.players. Civilian entries
-      // are intentionally skipped by the map renderer, so they are searchable
-      // without drawing hundreds of fake vehicle/player markers.
       snapshot.players = [...(Array.isArray(snapshot.players) ? snapshot.players : []), ...synthetic.map(item => ({ ...item, Team: "Civilian" }))];
-    } catch (error) {
-      console.error("Could not attach stored map locations; live CAD data remains available.", String(error?.message || error));
     }
 
     const headers = new Headers(upstream.headers);
