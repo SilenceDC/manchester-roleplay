@@ -10,7 +10,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: manchester-roleplay-turso-cutover
+  group: texas-state-roleplay-turso-cutover
   cancel-in-progress: false
 
 jobs:
