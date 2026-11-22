@@ -18,7 +18,7 @@ permissions:
   contents: read
 
 concurrency:
-  group: manchester-roleplay-cloudflare-production
+  group: texas-state-roleplay-cloudflare-production
   cancel-in-progress: false
 
 jobs:
