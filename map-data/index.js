@@ -412,8 +412,18 @@ export default {
     try {
       calibration = await loadMapCalibration(env.MAP_LOCATIONS_DB);
     } catch (error) {
-      console.error("Map calibration lookup failed; using default map bounds.", String(error?.message || error));
-      calibration = null;
+      console.error("Map calibration lookup failed; using last verified multi-point fit.", String(error?.message || error));
+      calibration = {
+        mode: "multi-point-affine",
+        method: "Last verified production multi-point fit (D1-independent fallback)",
+        scale_x: 22.463000459353964,
+        offset_x: -397.7855357723238,
+        scale_z: 22.481326258065888,
+        offset_z: -294.2769618686725,
+        anchor_count: 9,
+        median_error_px: 5.725,
+        p90_error_px: 9.56
+      };
     }
 
     // Keep raw world coordinates in the dedicated map database, then translate the live
