@@ -20,7 +20,7 @@ function loadMapTransforms(source) {
   const start = source.indexOf("function mapPxToLegacy");
   const end = source.indexOf("function transformLiveItems", start);
   assert.ok(start >= 0 && end > start, "map transform source block must exist");
-  return vm.runInNewContext(source.slice(start, end) + "; ({ mapPxToLegacy, mapToLegacyFormula })");
+  return vm.runInNewContext(source.slice(start, end) + "; ({ mapPxToLegacy, mapToLegacyFormula, fitMapCalibration })");
 }
 
 function loadCommandResponse(source) {
@@ -41,7 +41,7 @@ function loadSlashCommands(source) {
 }
 
 const automodViolation = loadAutomod(bot);
-const { mapPxToLegacy, mapToLegacyFormula } = loadMapTransforms(map);
+const { mapPxToLegacy, mapToLegacyFormula, fitMapCalibration } = loadMapTransforms(map);
 const commandResponse = loadCommandResponse(bot);
 const slashCommands = loadSlashCommands(bot);
 
@@ -71,7 +71,7 @@ test("map pixel origin maps to the legacy coordinate origin", () => {
 
 test("multi-point calibration rejects outliers and fits both map axes", () => {
   const points = [
-    { id: "a", world_x: -3000, world_z: -2500, map_x: -67605, map_y: -56270, sample_count: 4 },
+    { id: "a", world_x: -3000, world_z: -2500, map_x: -67605, map_y: -56500, sample_count: 4 },
     { id: "b", world_x: -1800, world_z: 1000, map_x: -40710, map_y: 22245, sample_count: 3 },
     { id: "c", world_x: -500, world_z: 3200, map_x: -11600, map_y: 71760, sample_count: 2 },
     { id: "d", world_x: 900, world_z: -1200, map_x: 19790, map_y: -27220, sample_count: 2 },
