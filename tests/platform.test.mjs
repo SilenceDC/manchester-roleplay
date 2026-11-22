@@ -108,7 +108,7 @@ test("live map transform uses the published Fall conversion regardless of stored
 
 test("map diagnostics fail closed and only capture the configured player by ID or case-insensitive username", () => {
   const start = map.indexOf("function diagnosticPlayerMatches");
-  const end = map.indexOf("\\nfunction diagnosticLocation", start);
+  const end = map.indexOf("\nfunction diagnosticLocation", start);
   assert.ok(start >= 0 && end > start, "diagnostic player matcher must exist");
   const matches = vm.runInNewContext(map.slice(start, end) + "; diagnosticPlayerMatches");
   assert.equal(matches({ Player: "Mads:3574132593" }, "3574132593"), true);
@@ -116,11 +116,11 @@ test("map diagnostics fail closed and only capture the configured player by ID o
   assert.equal(matches({ Player: "mAdS:3574132593" }, "MADS"), true);
   assert.equal(matches({ Player: "Other:123" }, "Mads"), false);
   assert.equal(matches({ Player: "Mads:3574132593" }, ""), false);
-  assert.match(map, /String\\(env\\.DIAG_PLAYER \\|\\| ""\\)\\.trim\\(\\)/);
-  assert.match(map, /diagnosticPlayers\\?\\.length/);
-  assert.match(map, /mapLastDiagnosticAt/);
-  assert.match(map, /transformedLocation/);
-  assert.match(map, /diagnosticLocation\\(getLocation\\(item\\)\\)/);
+  assert.ok(map.includes('String(env.DIAG_PLAYER || "").trim()'));
+  assert.ok(map.includes("diagnosticPlayers?.length"));
+  assert.ok(map.includes("mapLastDiagnosticAt"));
+  assert.ok(map.includes("transformedLocation"));
+  assert.ok(map.includes("diagnosticLocation(getLocation(item))"));
   assert.ok(map.indexOf("rawLocation: diagnosticLocation") < map.indexOf("transformLiveItems(snapshot.players, calibration)"));
   assert.ok(map.indexOf('console.info("[CAD_MAP_DIAGNOSTIC]"') > map.indexOf("transformLiveItems(snapshot.players, calibration)"));
 });
