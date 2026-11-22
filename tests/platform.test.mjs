@@ -74,6 +74,12 @@ test("map API transform uses the published Fall 2026 offset", () => {
   assert.ok(Math.abs(result.LocationZ - ((512.867 - 507.6) / 22)) < 1e-10);
 });
 
+test("map API transform applies measured PD calibration offsets", () => {
+  const result = mapToLegacyFormula(0, 0, { offset_x: -1052.7152222222212, offset_y: 272.7841111111193 });
+  assert.ok(Math.abs(result.LocationX - ((508.533 - 1052.7152222222212 - 503.6) / 22)) < 1e-10);
+  assert.ok(Math.abs(result.LocationZ - ((512.867 + 272.7841111111193 - 507.6) / 22)) < 1e-10);
+});
+
 test("Gateway watchdog skips expensive scans while healthy", () => {
   assert.match(bot, /current\.status === "online" && !outageStarted/);
   assert.match(bot, /Gateway is healthy; no recovery scan is needed/);
@@ -110,6 +116,8 @@ test("map-data uses the dedicated map database and preserves live CAD upstream d
   assert.ok(map.includes("env.ORIGIN_DATA.fetch"), "map service must proxy the shared data API");
   assert.ok(map.includes("env.MAP_LOCATIONS_DB"), "map service must use its dedicated location database");
   assert.ok(map.includes("transformLiveItems"), "map service must transform live world coordinates");
+  assert.ok(map.includes("loadMapCalibration"), "map service must derive map offsets from a live PD anchor");
+  assert.ok(map.includes("buildLocationIndex(env.MAP_LOCATIONS_DB, calibration)"), "searchable observed locations must use the same calibration as live markers");
   assert.ok(map.includes("snapshot.mapLocations"), "map service must attach searchable map reference data");
 });
 
