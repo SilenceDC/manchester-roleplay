@@ -1,6 +1,6 @@
-# Manchester Roleplay
+# Texas State Roleplay
 
-Private source repository for the Manchester Roleplay ER:LC community platform.
+Private source repository for the Texas State Roleplay ER:LC community platform.
 
 ## Production services
 
@@ -28,4 +28,4 @@ Cloudflare is the production runtime. Existing Worker bindings and persistent re
 
 ## Project boundaries
 
-Only the four Manchester Roleplay Workers listed above are included. Legacy TSRP/Government projects and Workers are intentionally excluded and must not be changed as part of this project.
+Only the four Texas State Roleplay Workers listed above are included. Legacy TSRP/Government projects and Workers are intentionally excluded and must not be changed as part of this project.
