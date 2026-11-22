@@ -92,25 +92,21 @@ test("multi-point calibration rejects outliers and fits both map axes", () => {
   assert.ok(fit.p90_error_px < 2);
 });
 
-test("live map transform uses the verified multi-point calibration when available", () => {
-  const calibration = {
-    mode: "multi-point-affine",
-    scale_x: 22.4,
-    offset_x: -400,
-    scale_z: 22.5,
-    offset_z: -250
-  };
+test("live map transform uses the published Fall conversion", () => {
   const result = mapToLegacyFormula(1250, -750, calibration);
   assert.deepEqual({ ...result }, {
-    ...mapPxToLegacy(22.4 * 1250 - 400, 22.5 * -750 - 250)
+    ...mapPxToLegacy((2000 / 90) * 1250 + 508.533, (2000 / 90) * -750 + 512.867)
   });
 });
-
-test("live map transform falls back to the published Fall conversion without a valid fit", () => {
-  const result = mapToLegacyFormula(0, 0, { mode: "published-fallback" });
-  assert.ok(Math.abs(result.LocationX - ((508.533 - 503.6) / 22)) < 1e-10);
-  assert.ok(Math.abs(result.LocationZ - ((512.867 - 507.6) / 22)) < 1e-10);
+test("collision-part locations snap to the exact matching static building point", () => {
+  const position = resolveStaticBuildingPosition({
+    PostalCode: "315",
+    BuildingNumber: "3151",
+    StreetName: "CollisionPart_Curb"
+  });
+  assert.deepEqual({ ...position }, { ...mapPxToLegacy(59471, 78234) });
 });
+
 test("map diagnostics fail closed and only capture the configured player by ID or case-insensitive username", () => {
   const start = map.indexOf("function diagnosticPlayerMatches");
   const end = map.indexOf("function diagnosticLocation", start);
