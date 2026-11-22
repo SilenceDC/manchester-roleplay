@@ -240,15 +240,20 @@ async function loadMapCalibration(db) {
   const calibration = { ...(base || {}) };
   const fit = fitMapCalibration(anchors?.results || []);
   if (fit) return { ...calibration, ...fit };
+  // Last verified production multi-point fit. Keep this available when D1's
+  // daily read quota is exhausted so live player positions do not revert to
+  // the less accurate published-map fallback.
   return {
     ...calibration,
-    mode: "published-fallback",
-    method: "Fallback transform; awaiting at least six consistent multi-point anchors",
-    scale_x: PUBLISHED_MAP_SCALE,
-    offset_x: PUBLISHED_MAP_OFFSET_X,
-    scale_z: PUBLISHED_MAP_SCALE,
-    offset_z: PUBLISHED_MAP_OFFSET_Y,
-    anchor_count: 0
+    mode: "cached-multi-point-affine",
+    method: "Last verified production multi-point fit (D1-independent fallback)",
+    scale_x: 22.463000459353964,
+    offset_x: -397.7855357723238,
+    scale_z: 22.481326258065888,
+    offset_z: -294.2769618686725,
+    anchor_count: 9,
+    median_error_px: 5.725,
+    p90_error_px: 9.56
   };
 }
 
