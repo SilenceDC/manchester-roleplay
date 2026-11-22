@@ -164,6 +164,14 @@ test("recovery scans are deliberately bounded into small resumable batches", () 
   assert.match(bot, /recovery scan is continuing; another pass is scheduled/i);
 });
 
+test("CAD map background alignment moves the image while preserving marker coordinates", () => {
+  assert.ok(website.includes("transform:translate(-10.06px,13.31px)"));
+  assert.ok(website.includes("MAP_BACKGROUND_OFFSET_X=-10.06,MAP_BACKGROUND_OFFSET_Y=13.31"));
+  assert.ok(website.includes("/scale-MAP_BACKGROUND_OFFSET_X)/10"));
+  assert.ok(website.includes("/scale-MAP_BACKGROUND_OFFSET_Y)/10"));
+  assert.ok(website.includes(".marker-layer{position:absolute;inset:0;pointer-events:none}"));
+});
+
 test("website forwards staff, CAD, and announcement APIs to the correct services", () => {
   assert.ok(website.includes("env.BOT.fetch"), "staff and moderation routes must reach the bot service");
   assert.ok(website.includes("env.DATA.fetch"), "CAD and data routes must reach the data service");
