@@ -92,7 +92,7 @@ test("multi-point calibration rejects outliers and fits both map axes", () => {
   assert.ok(fit.p90_error_px < 2);
 });
 
-test("live map transform uses the fitted X and Z models independently", () => {
+test("live map transform uses the published Fall conversion regardless of stored calibration", () => {
   const calibration = {
     mode: "multi-point-affine",
     scale_x: 22.4,
@@ -102,8 +102,17 @@ test("live map transform uses the fitted X and Z models independently", () => {
   };
   const result = mapToLegacyFormula(1250, -750, calibration);
   assert.deepEqual({ ...result }, {
-    ...mapPxToLegacy(22.4 * 1250 - 400, 22.5 * -750 - 250)
+    ...mapPxToLegacy((2000 / 90) * 1250 + 508.533, (2000 / 90) * -750 + 512.867)
   });
+});
+
+test("map-data logs raw and transformed player locations without changing production coordinates", () => {
+  const rawCapture = map.indexOf("rawLocation: loc ? { ...loc } : null");
+  const playerTransform = map.indexOf("transformLiveItems(snapshot.players, calibration)");
+  const diagnosticLog = map.indexOf('console.info("[CAD_MAP_DIAGNOSTIC]"');
+  assert.ok(rawCapture >= 0 && playerTransform > rawCapture && diagnosticLog > playerTransform);
+  assert.match(map, /mapLastDiagnosticAt/);
+  assert.match(map, /transformedLocation/);
 });
 
 test("map transform uses the published fallback only when no multi-point fit exists", () => {
