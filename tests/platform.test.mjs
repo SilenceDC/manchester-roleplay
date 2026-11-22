@@ -108,7 +108,7 @@ test("live map transform uses the published Fall conversion regardless of stored
 
 test("map diagnostics fail closed and only capture the configured player by ID or case-insensitive username", () => {
   const start = map.indexOf("function diagnosticPlayerMatches");
-  const end = map.indexOf("\nfunction diagnosticLocation", start);
+  const end = map.indexOf("function diagnosticLocation", start);
   assert.ok(start >= 0 && end > start, "diagnostic player matcher must exist");
   const matches = vm.runInNewContext(map.slice(start, end) + "; diagnosticPlayerMatches");
   assert.equal(matches({ Player: "Mads:3574132593" }, "3574132593"), true);
