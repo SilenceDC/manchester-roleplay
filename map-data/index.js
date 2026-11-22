@@ -281,30 +281,17 @@ async function loadMapCalibration(db) {
   };
 }
 
-const FALLBACK_STATIC_BUILDINGS = new Map([
-  // ERLC Tools Fall 2026 mapdata-fall2026.json: building 3151, postal 315.
-  ["315|3151", mapPxToLegacy(59471, 78234)]
-]);
-
-function resolveStaticBuildingPosition(loc, staticBuildings = null) {
-  const postal = String(loc?.PostalCode ?? loc?.postal ?? "").trim();
-  const building = String(loc?.BuildingNumber ?? loc?.building ?? "").trim();
-  if (!postal || !building) return null;
-  return staticBuildings?.get(postal + "|" + building) ||
-    FALLBACK_STATIC_BUILDINGS.get(postal + "|" + building) || null;
-}
-
-function transformLiveItems(items, calibration, staticBuildings = null) {
+function transformLiveItems(items, calibration) {
   if (!Array.isArray(items)) return;
   for (const item of items) {
     const loc = getLocation(item);
     if (!loc) continue;
     const coords = readWorldCoordinates(item, loc);
     if (!coords) continue;
-    const street = normalizeMapText(loc.StreetName || loc.street);
-    const invalidStreet = /^(roadalignmentindicator|whiteline|collisionpart)/.test(street);
-    const buildingPosition = invalidStreet ? resolveStaticBuildingPosition(loc, staticBuildings) : null;
-    const transformed = buildingPosition || mapToLegacyFormula(coords.x, coords.z, calibration);
+    // Keep the live API coordinates authoritative. StreetName can be a
+    // collision-part label, but replacing a moving player's position with
+    // a static building/postal centroid can put the unit on another block.
+    const transformed = mapToLegacyFormula(coords.x, coords.z, calibration);
     loc.LocationX = transformed.LocationX;
     loc.LocationZ = transformed.LocationZ;
     if (loc.x !== undefined) loc.x = transformed.LocationX;
@@ -330,12 +317,7 @@ async function buildLocationIndex(db, calibration = null) {
 
   const prefixPostals = new Set((prefixRows.results || []).map(row => String(row.postal_code || "")));
   const result = [];
-  const staticBuildings = new Map();
   for (const row of staticRows.results || []) {
-    if (row.kind === "building_number" && row.building_number) {
-      const key = String(row.postal_code || "") + "|" + String(row.building_number);
-      staticBuildings.set(key, mapPxToLegacy(Number(row.map_x), Number(row.map_y)));
-    }
     const coords = mapPxToLegacy(Number(row.map_x), Number(row.map_y));
     const postal = String(row.postal_code || "");
     const postalLabel = row.kind === "postal" && prefixPostals.has(postal) ? "Postal " + postal : postal;
@@ -385,8 +367,7 @@ async function buildLocationIndex(db, calibration = null) {
     items: result,
     count: Number(stats?.count || 0),
     staticCount: Number(staticStats?.count || 0),
-    prefixPostals: [...prefixPostals],
-    staticBuildings
+    prefixPostals: [...prefixPostals]
   };
 }
 
@@ -496,10 +477,9 @@ export default {
     // a collision-part street instead of a real street, prefer the exact
     // building-number point from ERLC Tools rather than plotting a bad curb
     // coordinate into an adjacent postal block.
-    const staticBuildings = index?.staticBuildings || null;
-    transformLiveItems(snapshot.players, calibration, staticBuildings);
-    transformLiveItems(snapshot.vehicles, calibration, staticBuildings);
-    transformLiveItems(snapshot.emergencyCalls, calibration, staticBuildings);
+    transformLiveItems(snapshot.players, calibration);
+    transformLiveItems(snapshot.vehicles, calibration);
+    transformLiveItems(snapshot.emergencyCalls, calibration);
 
     if (diagnosticPlayers?.length) {
       const diagnostic = diagnosticPlayers.map(entry => {
