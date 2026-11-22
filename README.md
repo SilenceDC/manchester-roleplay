@@ -11,6 +11,8 @@ Private source repository for the Texas State Roleplay ER:LC community platform.
 | `data/index.js` | `manchester-roleplay-data` | Shared API and Turso-backed application records |
 | `map-data/index.js` | `manchester-roleplay-map-data` | Live CAD map proxy, coordinate transforms and map location index |
 
+The four deployed Cloudflare script IDs shown above are being retained temporarily so existing service bindings, secrets, OAuth configuration, and the Discord Gateway Durable Object keep working. The source and public-facing branding are now Texas State Roleplay; the `workers.dev` script hostnames are not yet renamed.
+
 ## Checks and deployment
 
 - `npm run check` validates JavaScript syntax and runs the regression suite.
