@@ -46,7 +46,7 @@ const commandResponse = loadCommandResponse(bot);
 const slashCommands = loadSlashCommands(bot);
 
 test("automod leaves ordinary conversation alone", () => {
-  assert.equal(automodViolation("Welcome to Manchester Roleplay"), "");
+  assert.equal(automodViolation("Welcome to Texas State Roleplay"), "");
 });
 
 test("automod catches prohibited words and separator obfuscation", () => {
@@ -200,11 +200,11 @@ test("map-data uses the dedicated map database and preserves live CAD upstream d
 });
 
 
-test("all production entrypoints use Manchester Roleplay branding", () => {
+test("all production entrypoints use Texas State Roleplay branding", () => {
   for (const [name, source] of [["bot", bot], ["website", website], ["data", data], ["map-data", map]]) {
     assert.doesNotMatch(source, /Texas State Roleplay|Texas State Police|Texas Fire &(?:amp;)? Rescue|Texas EMS|\bTexas\b/i, name + " contains outdated Texas branding");
   }
-  for (const department of ["Greater Manchester Police", "Greater Manchester Fire & Rescue", "North West Ambulance Service"]) {
+  for (const department of ["Texas State Police", "Texas Fire & Rescue", "Texas EMS"]) {
     assert.ok(bot.includes(department), "bot is missing department: " + department);
     assert.ok(website.includes(department.replace("&", "&amp;")) || website.includes(department), "website is missing department: " + department);
   }
@@ -213,15 +213,15 @@ test("all production entrypoints use Manchester Roleplay branding", () => {
 test("bot's HTTP interaction endpoint handles Discord PING and slash commands", () => {
   assert.match(bot, /if \(interaction\.type === 1\)[\s\S]*?return json\(\{ type: 1 \}\)/);
   assert.match(bot, /interaction\.type === 2[\s\S]*?commandResponse\(name\)/);
-  assert.match(bot, /ping: "Pong! Manchester Roleplay bot is online/);
+  assert.match(bot, /ping: "Pong! Texas State Roleplay bot is online/);
 });
 
 
-test("the bot returns a valid immediate /ping response and Manchester descriptions", () => {
+test("the bot returns a valid immediate /ping response and Texas descriptions", () => {
   const response = commandResponse("ping");
   assert.equal(response.type, 4);
-  assert.match(response.data.content, /Pong! Manchester Roleplay bot is online/);
-  assert.match(slashCommands.find(command => command.name === "ping").description, /Manchester Roleplay/);
+  assert.match(response.data.content, /Pong! Texas State Roleplay bot is online/);
+  assert.match(slashCommands.find(command => command.name === "ping").description, /Texas State Roleplay/);
   assert.match(bot, /moderation_commands_version.*"manchester-roleplay-commands-v2"/);
 });
 
@@ -244,7 +244,7 @@ test("Turso adapter maps prepared statements and SQLite values over Hrana", asyn
       results: [
         { type: "ok", response: { type: "execute", result: {
           cols: [{ name: "ok" }, { name: "label" }],
-          rows: [[{ type: "integer", value: "1" }, { type: "text", value: "Manchester" }]],
+          rows: [[{ type: "integer", value: "1" }, { type: "text", value: "Texas" }]],
           affected_row_count: 0
         } } },
         { type: "ok", response: { type: "close" } }
@@ -253,13 +253,13 @@ test("Turso adapter maps prepared statements and SQLite values over Hrana", asyn
   };
   try {
     const db = new TursoDatabase("libsql://example-org.turso.io", "test-token");
-    const row = await db.prepare("SELECT ? AS ok, ? AS label").bind(1, "Manchester").first();
-    assert.deepEqual(row, { ok: 1, label: "Manchester" });
+    const row = await db.prepare("SELECT ? AS ok, ? AS label").bind(1, "Texas").first();
+    assert.deepEqual(row, { ok: 1, label: "Texas" });
     assert.equal(requests[0].url, "https://example-org.turso.io/v2/pipeline");
     assert.equal(requests[0].authorization, "Bearer test-token");
     assert.deepEqual(requests[0].body.requests[0].stmt.args, [
       { type: "integer", value: "1" },
-      { type: "text", value: "Manchester" }
+      { type: "text", value: "Texas" }
     ]);
     assert.equal(requests[0].body.requests.at(-1).type, "close");
   } finally {
@@ -296,7 +296,7 @@ test("Turso adapter executes D1-style batches as one transaction", async () => {
   }
 });
 
-test("Manchester data API keeps D1 as the safe default until an explicit Turso cutover", () => {
+test("Texas data API keeps D1 as the safe default until an explicit Turso cutover", () => {
   const d1 = { marker: "existing D1 binding" };
   assert.equal(getDatabase({ MANCHESTER_DB: d1 }), d1);
   assert.throws(() => getDatabase({ MANCHESTER_STORAGE_BACKEND: "turso" }), /URL or authentication token is missing/);
