@@ -72,14 +72,44 @@ function mapPxToLegacy(mapPxX, mapPxY) {
   };
 }
 
-function mapToLegacyFormula(apiLocationX, apiLocationZ) {
-  // ERLC Tools' published Fall 2026 transform:
-  // mapPxX = 22.222222... * API LocationX + 508.533
-  // mapPxY = 22.222222... * API LocationZ + 512.867
-  // The CAD map is 120,000 px square; its existing renderer normalizes to 0..1000.
-  const mapPxX = (2000 / 90) * Number(apiLocationX) + 508.533;
-  const mapPxY = (2000 / 90) * Number(apiLocationZ) + 512.867;
+function mapToLegacyFormula(apiLocationX, apiLocationZ, calibration = null) {
+  // ERLC Tools' published Fall 2026 transform. Apply the measured translation
+  // from the live PD anchor so the live map and the supplied map reference share
+  // the same origin. The offset is calculated from live samples, not guessed.
+  const offsetX = Number(calibration?.offset_x || 0);
+  const offsetY = Number(calibration?.offset_y || 0);
+  const mapPxX = (2000 / 90) * Number(apiLocationX) + 508.533 + offsetX;
+  const mapPxY = (2000 / 90) * Number(apiLocationZ) + 512.867 + offsetY;
   return mapPxToLegacy(mapPxX, mapPxY);
+}
+
+async function loadMapCalibration(db) {
+  const [base, anchor] = await Promise.all([
+    db.prepare(
+      "SELECT world_min_x,world_max_x,world_min_z,world_max_z,image_key,method FROM map_calibration WHERE id=1"
+    ).first(),
+    db.prepare(
+      "SELECT a.world_x,a.world_z,a.sample_count,p.map_x,p.map_y FROM (SELECT SUM(world_x*sample_count)/SUM(sample_count) AS world_x,SUM(world_z*sample_count)/SUM(sample_count) AS world_z,SUM(sample_count) AS sample_count FROM map_locations WHERE postal_code='316' AND street_name IN ('CurbLeft','CurbRight')) a JOIN map_static_places p ON p.kind='building' AND p.label='Police Department' AND p.postal_code='316' LIMIT 1"
+    ).first()
+  ]);
+
+  const calibration = { ...(base || {}) };
+  const values = [anchor?.world_x, anchor?.world_z, anchor?.map_x, anchor?.map_y, anchor?.sample_count].map(Number);
+  if (values.every(Number.isFinite) && values[4] >= 3) {
+    const [worldX, worldZ, mapX, mapY] = values;
+    const expectedX = (2000 / 90) * worldX + 508.533;
+    const expectedY = (2000 / 90) * worldZ + 512.867;
+    const offsetX = mapX - expectedX;
+    const offsetY = mapY - expectedY;
+    // Reject bad/stale anchors rather than shifting the whole CAD map wildly.
+    if (Math.abs(offsetX) <= 2500 && Math.abs(offsetY) <= 2500) {
+      calibration.offset_x = offsetX;
+      calibration.offset_y = offsetY;
+      calibration.anchor = "Police Department · postal 316";
+      calibration.anchor_samples = values[4];
+    }
+  }
+  return calibration;
 }
 
 function transformLiveItems(items, calibration) {
@@ -97,7 +127,7 @@ function transformLiveItems(items, calibration) {
   }
 }
 
-async function buildLocationIndex(db) {
+async function buildLocationIndex(db, calibration = null) {
   const [streets, postals, stats, staticRows, staticStats, prefixRows] = await Promise.all([
     db.prepare(
       "SELECT postal_code,street_name,AVG(world_x) AS world_x,AVG(world_z) AS world_z,SUM(sample_count) AS sample_count,MAX(last_seen) AS last_seen FROM map_locations WHERE street_norm<>'' GROUP BY postal_code,street_norm ORDER BY MAX(last_seen) DESC LIMIT 800"
@@ -134,7 +164,7 @@ async function buildLocationIndex(db) {
     });
   }
   for (const row of streets.results || []) {
-    const coords = mapToLegacyFormula(Number(row.world_x), Number(row.world_z));
+    const coords = mapToLegacyFormula(Number(row.world_x), Number(row.world_z), calibration);
     result.push({
       Player: "Observed map location",
       Team: "Civilian",
@@ -147,7 +177,7 @@ async function buildLocationIndex(db) {
     });
   }
   for (const row of postals.results || []) {
-    const coords = mapToLegacyFormula(Number(row.world_x), Number(row.world_z));
+    const coords = mapToLegacyFormula(Number(row.world_x), Number(row.world_z), calibration);
     const postal = String(row.postal_code || "");
     const postalLabel = prefixPostals.has(postal) ? "Postal " + postal : postal;
     result.push({
@@ -185,10 +215,12 @@ export default {
     const upstreamRequest = new Request(originUrl.toString(), request);
 
     if (url.pathname === "/map/health" && request.method === "GET") {
-      const row = await env.MAP_LOCATIONS_DB.prepare("SELECT COUNT(*) AS count FROM map_locations").first();
-      const staticRow = await env.MAP_LOCATIONS_DB.prepare("SELECT COUNT(*) AS count FROM map_static_places").first();
-      const state = await env.MAP_LOCATIONS_DB.prepare("SELECT value,updated_at FROM map_sync_state WHERE key='last_live_snapshot'").first();
-      const calibration = await env.MAP_LOCATIONS_DB.prepare("SELECT world_min_x,world_max_x,world_min_z,world_max_z,image_key,method FROM map_calibration WHERE id=1").first();
+      const [row, staticRow, state, calibration] = await Promise.all([
+        env.MAP_LOCATIONS_DB.prepare("SELECT COUNT(*) AS count FROM map_locations").first(),
+        env.MAP_LOCATIONS_DB.prepare("SELECT COUNT(*) AS count FROM map_static_places").first(),
+        env.MAP_LOCATIONS_DB.prepare("SELECT value,updated_at FROM map_sync_state WHERE key='last_live_snapshot'").first(),
+        loadMapCalibration(env.MAP_LOCATIONS_DB)
+      ]);
       return json({
         ok: true,
         database: "manchester-roleplay-map-locations",
@@ -233,9 +265,7 @@ export default {
 
     let calibration;
     try {
-      calibration = await env.MAP_LOCATIONS_DB.prepare(
-        "SELECT world_min_x,world_max_x,world_min_z,world_max_z,image_key,method FROM map_calibration WHERE id=1"
-      ).first();
+      calibration = await loadMapCalibration(env.MAP_LOCATIONS_DB);
     } catch (error) {
       console.error("Map calibration lookup failed; using default map bounds.", String(error?.message || error));
       calibration = null;
@@ -248,7 +278,7 @@ export default {
     transformLiveItems(snapshot.emergencyCalls, calibration);
 
     try {
-      const index = await buildLocationIndex(env.MAP_LOCATIONS_DB);
+      const index = await buildLocationIndex(env.MAP_LOCATIONS_DB, calibration);
       const liveKeys = new Set();
       for (const item of [
         ...(Array.isArray(snapshot.players) ? snapshot.players : []),
