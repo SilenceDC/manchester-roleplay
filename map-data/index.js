@@ -2,6 +2,26 @@
 let mapLastIndexedAt = 0;
 let mapLastDiagnosticAt = 0;
 
+function diagnosticPlayerMatches(item, identifier) {
+  const expected = String(identifier ?? "").trim();
+  if (!expected) return false;
+  const player = String(item?.Player || item?.player || item?.username || "").trim();
+  const separator = player.lastIndexOf(":");
+  const playerName = separator >= 0 ? player.slice(0, separator).trim() : player;
+  const playerId = separator >= 0 ? player.slice(separator + 1).trim() : "";
+  if (/^\\d+$/.test(expected)) return playerId === expected;
+  return playerName.toLowerCase() === expected.toLowerCase();
+}
+
+function diagnosticLocation(loc) {
+  if (!loc || typeof loc !== "object") return null;
+  const result = {};
+  for (const key of ["LocationX", "LocationZ", "PostalCode", "StreetName", "BuildingNumber"]) {
+    if (loc[key] !== undefined) result[key] = loc[key];
+  }
+  return result;
+}
+
 const json = (value, status = 200, extraHeaders = {}) => new Response(JSON.stringify(value), {
   status,
   headers: {
@@ -404,18 +424,18 @@ export default {
       return json(snapshot, upstream.status, Object.fromEntries(upstream.headers));
     }
 
-    // Temporary, read-only diagnostic: capture raw API player locations before
-    // transformLiveItems mutates the coordinates sent to the CAD renderer.
-    const diagnosticPlayers = Date.now() - mapLastDiagnosticAt >= 30000
-      ? (Array.isArray(snapshot.players) ? snapshot.players.map(item => {
-          const loc = getLocation(item);
-          return {
+    // Temporary, read-only diagnostic. Fail closed unless a single player
+    // identifier is explicitly configured as the DIAG_PLAYER Worker secret.
+    const diagnosticPlayer = String(env.DIAG_PLAYER || "").trim();
+    const diagnosticPlayers = diagnosticPlayer && Date.now() - mapLastDiagnosticAt >= 30000
+      ? (Array.isArray(snapshot.players) ? snapshot.players
+          .filter(item => diagnosticPlayerMatches(item, diagnosticPlayer))
+          .map(item => ({
             player: text(item?.Player || item?.player || item?.username, 80),
-            rawLocation: loc ? { ...loc } : null
-          };
-        }) : [])
+            rawLocation: diagnosticLocation(getLocation(item))
+          })) : [])
       : null;
-    if (diagnosticPlayers) mapLastDiagnosticAt = Date.now();
+    if (diagnosticPlayers?.length) mapLastDiagnosticAt = Date.now();
 
     if (Date.now() - mapLastIndexedAt >= 30000) {
       mapLastIndexedAt = Date.now();
@@ -449,19 +469,23 @@ export default {
     transformLiveItems(snapshot.vehicles, calibration);
     transformLiveItems(snapshot.emergencyCalls, calibration);
 
-    if (diagnosticPlayers) {
-      const diagnostic = diagnosticPlayers.map((entry, index) => {
-        const transformed = getLocation(snapshot.players?.[index]);
+    if (diagnosticPlayers?.length) {
+      const diagnostic = diagnosticPlayers.map(entry => {
+        const transformedItem = snapshot.players.find(item =>
+          diagnosticPlayerMatches(item, diagnosticPlayer)
+        );
         return {
           player: entry.player,
           rawLocation: entry.rawLocation,
-          transformedLocation: transformed ? { ...transformed } : null
+          transformedLocation: diagnosticLocation(getLocation(transformedItem))
         };
       }).filter(entry => entry.rawLocation);
-      console.info("[CAD_MAP_DIAGNOSTIC]", JSON.stringify({
-        capturedAt: new Date().toISOString(),
-        players: diagnostic
-      }));
+      if (diagnostic.length) {
+        console.info("[CAD_MAP_DIAGNOSTIC]", JSON.stringify({
+          capturedAt: new Date().toISOString(),
+          players: diagnostic
+        }));
+      }
     }
 
     try {
