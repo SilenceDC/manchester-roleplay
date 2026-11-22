@@ -68,16 +68,48 @@ test("map pixel origin maps to the legacy coordinate origin", () => {
   assert.deepEqual({ ...mapPxToLegacy(503.6, 507.6) }, { LocationX: 0, LocationZ: 0 });
 });
 
-test("map API transform uses the published Fall 2026 offset", () => {
-  const result = mapToLegacyFormula(0, 0);
-  assert.ok(Math.abs(result.LocationX - ((508.533 - 503.6) / 22)) < 1e-10);
-  assert.ok(Math.abs(result.LocationZ - ((512.867 - 507.6) / 22)) < 1e-10);
+
+test("multi-point calibration rejects outliers and fits both map axes", () => {
+  const points = [
+    { id: "a", world_x: -3000, world_z: -2500, map_x: -67605, map_y: -56270, sample_count: 4 },
+    { id: "b", world_x: -1800, world_z: 1000, map_x: -40710, map_y: 22245, sample_count: 3 },
+    { id: "c", world_x: -500, world_z: 3200, map_x: -11600, map_y: 71760, sample_count: 2 },
+    { id: "d", world_x: 900, world_z: -1200, map_x: 19790, map_y: -27220, sample_count: 2 },
+    { id: "e", world_x: 2100, world_z: 2600, map_x: 46620, map_y: 58270, sample_count: 3 },
+    { id: "f", world_x: 3400, world_z: 800, map_x: 75730, map_y: 17740, sample_count: 2 },
+    { id: "g", world_x: 4500, world_z: -1800, map_x: 100395, map_y: -40740, sample_count: 1 },
+    { id: "h", world_x: 1200, world_z: 4200, map_x: 26530, map_y: 94240, sample_count: 1 },
+    { id: "bad-x", world_x: 2800, world_z: 1500, map_x: 99000, map_y: 33400, sample_count: 1 },
+    { id: "bad-z", world_x: -2400, world_z: 2300, map_x: -54200, map_y: 99000, sample_count: 1 }
+  ];
+  const fit = fitMapCalibration(points);
+  assert.equal(fit.mode, "multi-point-affine");
+  assert.ok(Math.abs(fit.scale_x - 22.4) < 0.02);
+  assert.ok(Math.abs(fit.scale_z - 22.5) < 0.02);
+  assert.ok(Math.abs(fit.offset_x + 400) < 100);
+  assert.ok(Math.abs(fit.offset_z + 250) < 100);
+  assert.ok(fit.anchor_count >= 7);
+  assert.ok(fit.p90_error_px < 2);
 });
 
-test("map API transform applies measured PD calibration offsets", () => {
-  const result = mapToLegacyFormula(0, 0, { offset_x: -1052.7152222222212, offset_y: 272.7841111111193 });
-  assert.ok(Math.abs(result.LocationX - ((508.533 - 1052.7152222222212 - 503.6) / 22)) < 1e-10);
-  assert.ok(Math.abs(result.LocationZ - ((512.867 + 272.7841111111193 - 507.6) / 22)) < 1e-10);
+test("live map transform uses the fitted X and Z models independently", () => {
+  const calibration = {
+    mode: "multi-point-affine",
+    scale_x: 22.4,
+    offset_x: -400,
+    scale_z: 22.5,
+    offset_z: -250
+  };
+  const result = mapToLegacyFormula(1250, -750, calibration);
+  assert.deepEqual({ ...result }, {
+    ...mapPxToLegacy(22.4 * 1250 - 400, 22.5 * -750 - 250)
+  });
+});
+
+test("map transform uses the published fallback only when no multi-point fit exists", () => {
+  const result = mapToLegacyFormula(0, 0, { mode: "published-fallback" });
+  assert.ok(Math.abs(result.LocationX - ((508.533 - 503.6) / 22)) < 1e-10);
+  assert.ok(Math.abs(result.LocationZ - ((512.867 - 507.6) / 22)) < 1e-10);
 });
 
 test("Gateway watchdog skips expensive scans while healthy", () => {
@@ -116,7 +148,10 @@ test("map-data uses the dedicated map database and preserves live CAD upstream d
   assert.ok(map.includes("env.ORIGIN_DATA.fetch"), "map service must proxy the shared data API");
   assert.ok(map.includes("env.MAP_LOCATIONS_DB"), "map service must use its dedicated location database");
   assert.ok(map.includes("transformLiveItems"), "map service must transform live world coordinates");
-  assert.ok(map.includes("loadMapCalibration"), "map service must derive map offsets from a live PD anchor");
+  assert.ok(map.includes("loadMapCalibration"), "map service must load map calibration");
+  assert.ok(map.includes("fitMapCalibration"), "map service must use a robust multi-point map fit");
+  assert.ok(map.includes("p.kind='building_number'"), "calibration must use static building-number reference points");
+  assert.ok(!map.includes("street_name IN ('CurbLeft','CurbRight')"), "calibration must not rely on the single PD anchor");
   assert.ok(map.includes("buildLocationIndex(env.MAP_LOCATIONS_DB, calibration)"), "searchable observed locations must use the same calibration as live markers");
   assert.ok(map.includes("snapshot.mapLocations"), "map service must attach searchable map reference data");
 });
