@@ -61,7 +61,7 @@ export default { async fetch(request, env) {
     const auth=await cadAccess();if(auth.error)return auth.error;
     const now=Date.now(),cached=cadLiveResponseCache.value,age=cached?Math.max(0,Math.floor((now-cadLiveResponseCache.at)/1000)):0;
     if(cached&&age*1000<CAD_LIVE_CACHE_TTL_MS)return json({...cached,cached:true,cacheAgeSeconds:age});
-    const r=await env.DATA.fetch('https://data/cad/live');const raw=await r.text();let d;
+    if(!env.MAP_DATA)return json({ok:false,connected:false,error:'CAD map-data service is not configured.'},503);const r=await env.MAP_DATA.fetch('https://map-data/cad/live');const raw=await r.text();let d;
     try{d=JSON.parse(raw)}catch{d={ok:false,error:'Live data service returned invalid data.'}}
     const retryAfter=r.headers.get('retry-after');
     if(r.ok&&d.ok&&d.connected){cadLiveResponseCache={at:now,value:d};return json(d);}
