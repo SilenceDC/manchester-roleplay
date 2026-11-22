@@ -106,13 +106,23 @@ test("live map transform uses the published Fall conversion regardless of stored
   });
 });
 
-test("map-data logs raw and transformed player locations without changing production coordinates", () => {
-  const rawCapture = map.indexOf("rawLocation: loc ? { ...loc } : null");
-  const playerTransform = map.indexOf("transformLiveItems(snapshot.players, calibration)");
-  const diagnosticLog = map.indexOf('console.info("[CAD_MAP_DIAGNOSTIC]"');
-  assert.ok(rawCapture >= 0 && playerTransform > rawCapture && diagnosticLog > playerTransform);
+test("map diagnostics fail closed and only capture the configured player by ID or case-insensitive username", () => {
+  const start = map.indexOf("function diagnosticPlayerMatches");
+  const end = map.indexOf("\\nfunction diagnosticLocation", start);
+  assert.ok(start >= 0 && end > start, "diagnostic player matcher must exist");
+  const matches = vm.runInNewContext(map.slice(start, end) + "; diagnosticPlayerMatches");
+  assert.equal(matches({ Player: "Mads:3574132593" }, "3574132593"), true);
+  assert.equal(matches({ Player: "Other:3574132593" }, "3574132594"), false);
+  assert.equal(matches({ Player: "mAdS:3574132593" }, "MADS"), true);
+  assert.equal(matches({ Player: "Other:123" }, "Mads"), false);
+  assert.equal(matches({ Player: "Mads:3574132593" }, ""), false);
+  assert.match(map, /String\\(env\\.DIAG_PLAYER \\|\\| ""\\)\\.trim\\(\\)/);
+  assert.match(map, /diagnosticPlayers\\?\\.length/);
   assert.match(map, /mapLastDiagnosticAt/);
   assert.match(map, /transformedLocation/);
+  assert.match(map, /diagnosticLocation\\(getLocation\\(item\\)\\)/);
+  assert.ok(map.indexOf("rawLocation: diagnosticLocation") < map.indexOf("transformLiveItems(snapshot.players, calibration)"));
+  assert.ok(map.indexOf('console.info("[CAD_MAP_DIAGNOSTIC]"') > map.indexOf("transformLiveItems(snapshot.players, calibration)"));
 });
 
 test("map transform uses the published fallback only when no multi-point fit exists", () => {
