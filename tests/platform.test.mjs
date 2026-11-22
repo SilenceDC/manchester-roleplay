@@ -165,8 +165,8 @@ test("recovery scans are deliberately bounded into small resumable batches", () 
 });
 
 test("CAD map background alignment moves the image while preserving marker coordinates", () => {
-  assert.ok(website.includes("transform:translate(-10.06px,13.31px)"));
-  assert.ok(website.includes("MAP_BACKGROUND_OFFSET_X=-10.06,MAP_BACKGROUND_OFFSET_Y=13.31"));
+  assert.ok(website.includes("transform:translate(-10.1px,13.6px)"));
+  assert.ok(website.includes("MAP_BACKGROUND_OFFSET_X=-10.1,MAP_BACKGROUND_OFFSET_Y=13.6"));
   assert.ok(website.includes("mapX-MAP_BACKGROUND_OFFSET_X)/10"));
   assert.ok(website.includes("mapY-MAP_BACKGROUND_OFFSET_Y)/10"));
   assert.ok(website.includes(".marker-layer{position:absolute;inset:0;pointer-events:none}"));
