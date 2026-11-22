@@ -72,44 +72,184 @@ function mapPxToLegacy(mapPxX, mapPxY) {
   };
 }
 
+
+const PUBLISHED_MAP_SCALE = 2000 / 90;
+const PUBLISHED_MAP_OFFSET_X = 508.533;
+const PUBLISHED_MAP_OFFSET_Y = 512.867;
+const CALIBRATION_INLIER_LIMIT = 1400;
+const CALIBRATION_MIN_ANCHORS = 6;
+
+function weightedLineFit(points, worldKey, mapKey) {
+  let weightSum = 0;
+  let worldSum = 0;
+  let mapSum = 0;
+  for (const point of points) {
+    const weight = Math.min(4, Math.max(1, Number(point.sample_count) || 1));
+    weightSum += weight;
+    worldSum += Number(point[worldKey]) * weight;
+    mapSum += Number(point[mapKey]) * weight;
+  }
+  if (!weightSum) return null;
+  const worldMean = worldSum / weightSum;
+  const mapMean = mapSum / weightSum;
+  let covariance = 0;
+  let variance = 0;
+  for (const point of points) {
+    const weight = Math.min(4, Math.max(1, Number(point.sample_count) || 1));
+    const worldDelta = Number(point[worldKey]) - worldMean;
+    covariance += weight * worldDelta * (Number(point[mapKey]) - mapMean);
+    variance += weight * worldDelta * worldDelta;
+  }
+  if (variance <= 1e-9) return null;
+  const scale = covariance / variance;
+  return { scale, offset: mapMean - scale * worldMean };
+}
+
+function median(values) {
+  if (!values.length) return Infinity;
+  const sorted = [...values].sort((a, b) => a - b);
+  const middle = Math.floor(sorted.length / 2);
+  return sorted.length % 2 ? sorted[middle] : (sorted[middle - 1] + sorted[middle]) / 2;
+}
+
+function percentile(values, fraction) {
+  if (!values.length) return Infinity;
+  const sorted = [...values].sort((a, b) => a - b);
+  return sorted[Math.min(sorted.length - 1, Math.ceil(fraction * sorted.length) - 1)];
+}
+
+function fitAxisCalibration(points, worldKey, mapKey) {
+  if (!Array.isArray(points) || points.length < CALIBRATION_MIN_ANCHORS) return null;
+  let best = null;
+  for (let i = 0; i < points.length; i++) {
+    for (let j = i + 1; j < points.length; j++) {
+      const worldA = Number(points[i][worldKey]);
+      const worldB = Number(points[j][worldKey]);
+      const mapA = Number(points[i][mapKey]);
+      const mapB = Number(points[j][mapKey]);
+      const deltaWorld = worldB - worldA;
+      if (!Number.isFinite(deltaWorld) || Math.abs(deltaWorld) < 150) continue;
+      const scale = (mapB - mapA) / deltaWorld;
+      if (!Number.isFinite(scale) || scale < 18 || scale > 26) continue;
+      const offset = mapA - scale * worldA;
+      const inliers = points.filter(point =>
+        Math.abs(Number(point[mapKey]) - (scale * Number(point[worldKey]) + offset)) <= CALIBRATION_INLIER_LIMIT
+      );
+      if (inliers.length < CALIBRATION_MIN_ANCHORS) continue;
+      const support = inliers.reduce((sum, point) => sum + Math.min(4, Math.max(1, Number(point.sample_count) || 1)), 0);
+      const residualMedian = median(inliers.map(point =>
+        Math.abs(Number(point[mapKey]) - (scale * Number(point[worldKey]) + offset))
+      ));
+      const score = [support, inliers.length, -residualMedian];
+      if (!best || score[0] > best.score[0] ||
+        (score[0] === best.score[0] && score[1] > best.score[1]) ||
+        (score[0] === best.score[0] && score[1] === best.score[1] && score[2] > best.score[2])) {
+        best = { score, inliers };
+      }
+    }
+  }
+  if (!best) return null;
+  const fitted = weightedLineFit(best.inliers, worldKey, mapKey);
+  if (!fitted || fitted.scale < 18 || fitted.scale > 26) return null;
+  const refined = points.filter(point =>
+    Math.abs(Number(point[mapKey]) - (fitted.scale * Number(point[worldKey]) + fitted.offset)) <= CALIBRATION_INLIER_LIMIT
+  );
+  if (refined.length < CALIBRATION_MIN_ANCHORS) return null;
+  const finalFit = weightedLineFit(refined, worldKey, mapKey);
+  if (!finalFit || finalFit.scale < 18 || finalFit.scale > 26) return null;
+  const worldValues = refined.map(point => Number(point[worldKey]));
+  const worldSpan = Math.max(...worldValues) - Math.min(...worldValues);
+  const errors = refined.map(point =>
+    Math.abs(Number(point[mapKey]) - (finalFit.scale * Number(point[worldKey]) + finalFit.offset))
+  );
+  if (worldSpan < 1200 || median(errors) > 850 || percentile(errors, 0.9) > 1400) return null;
+  return {
+    ...finalFit,
+    inlierIds: new Set(refined.map(point => String(point.id))),
+    anchorCount: refined.length,
+    worldSpan,
+    medianError: median(errors),
+    p90Error: percentile(errors, 0.9)
+  };
+}
+
+function fitMapCalibration(points) {
+  if (!Array.isArray(points)) return null;
+  const valid = points.filter(point =>
+    point && point.id !== undefined &&
+    [point.world_x, point.world_z, point.map_x, point.map_y].every(value => Number.isFinite(Number(value)))
+  );
+  const xFit = fitAxisCalibration(valid, "world_x", "map_x");
+  const zFit = fitAxisCalibration(valid, "world_z", "map_y");
+  if (!xFit || !zFit) return null;
+  const common = valid.filter(point =>
+    xFit.inlierIds.has(String(point.id)) && zFit.inlierIds.has(String(point.id))
+  );
+  if (common.length < CALIBRATION_MIN_ANCHORS) return null;
+  const x = weightedLineFit(common, "world_x", "map_x");
+  const z = weightedLineFit(common, "world_z", "map_y");
+  if (!x || !z || x.scale < 18 || x.scale > 26 || z.scale < 18 || z.scale > 26) return null;
+  const errors = common.map(point => Math.hypot(
+    Number(point.map_x) - (x.scale * Number(point.world_x) + x.offset),
+    Number(point.map_y) - (z.scale * Number(point.world_z) + z.offset)
+  ));
+  if (median(errors) > 1100 || percentile(errors, 0.9) > 1800) return null;
+  return {
+    mode: "multi-point-affine",
+    method: "Robust multi-point fit from matching postal-code and building-number references",
+    scale_x: x.scale,
+    offset_x: x.offset,
+    scale_z: z.scale,
+    offset_z: z.offset,
+    anchor_count: common.length,
+    sample_count: common.reduce((sum, point) => sum + (Number(point.sample_count) || 1), 0),
+    median_error_px: median(errors) / 120,
+    p90_error_px: percentile(errors, 0.9) / 120,
+    x_world_span: xFit.worldSpan,
+    z_world_span: zFit.worldSpan
+  };
+}
+
 function mapToLegacyFormula(apiLocationX, apiLocationZ, calibration = null) {
-  // ERLC Tools' published Fall 2026 transform. Apply the measured translation
-  // from the live PD anchor so the live map and the supplied map reference share
-  // the same origin. The offset is calculated from live samples, not guessed.
-  const offsetX = Number(calibration?.offset_x || 0);
-  const offsetY = Number(calibration?.offset_y || 0);
-  const mapPxX = (2000 / 90) * Number(apiLocationX) + 508.533 + offsetX;
-  const mapPxY = (2000 / 90) * Number(apiLocationZ) + 512.867 + offsetY;
+  const calibrated = calibration?.mode === "multi-point-affine";
+  const scaleX = calibrated ? Number(calibration.scale_x) : PUBLISHED_MAP_SCALE;
+  const scaleZ = calibrated ? Number(calibration.scale_z) : PUBLISHED_MAP_SCALE;
+  const offsetX = calibrated ? Number(calibration.offset_x) : PUBLISHED_MAP_OFFSET_X;
+  const offsetY = calibrated ? Number(calibration.offset_z) : PUBLISHED_MAP_OFFSET_Y;
+  const mapPxX = scaleX * Number(apiLocationX) + offsetX;
+  const mapPxY = scaleZ * Number(apiLocationZ) + offsetY;
   return mapPxToLegacy(mapPxX, mapPxY);
 }
 
 async function loadMapCalibration(db) {
-  const [base, anchor] = await Promise.all([
+  const [base, anchors] = await Promise.all([
     db.prepare(
       "SELECT world_min_x,world_max_x,world_min_z,world_max_z,image_key,method FROM map_calibration WHERE id=1"
     ).first(),
     db.prepare(
-      "SELECT a.world_x,a.world_z,a.sample_count,p.map_x,p.map_y FROM (SELECT SUM(world_x*sample_count)/SUM(sample_count) AS world_x,SUM(world_z*sample_count)/SUM(sample_count) AS world_z,SUM(sample_count) AS sample_count FROM map_locations WHERE postal_code='316' AND street_name IN ('CurbLeft','CurbRight')) a JOIN map_static_places p ON p.kind='building' AND p.label='Police Department' AND p.postal_code='316' LIMIT 1"
-    ).first()
+      "SELECT p.id AS id,p.building_number AS building_number," +
+      "SUM(l.world_x*l.sample_count)/SUM(l.sample_count) AS world_x," +
+      "SUM(l.world_z*l.sample_count)/SUM(l.sample_count) AS world_z," +
+      "SUM(l.sample_count) AS sample_count,p.map_x AS map_x,p.map_y AS map_y " +
+      "FROM map_locations l JOIN map_static_places p " +
+      "ON p.kind='building_number' AND p.building_number=l.building_number " +
+      "AND (l.postal_code='' OR l.postal_code=p.postal_code) " +
+      "WHERE l.building_number<>'' GROUP BY p.id,p.building_number,p.map_x,p.map_y"
+    ).all()
   ]);
-
   const calibration = { ...(base || {}) };
-  const values = [anchor?.world_x, anchor?.world_z, anchor?.map_x, anchor?.map_y, anchor?.sample_count].map(Number);
-  if (values.every(Number.isFinite) && values[4] >= 3) {
-    const [worldX, worldZ, mapX, mapY] = values;
-    const expectedX = (2000 / 90) * worldX + 508.533;
-    const expectedY = (2000 / 90) * worldZ + 512.867;
-    const offsetX = mapX - expectedX;
-    const offsetY = mapY - expectedY;
-    // Reject bad/stale anchors rather than shifting the whole CAD map wildly.
-    if (Math.abs(offsetX) <= 2500 && Math.abs(offsetY) <= 2500) {
-      calibration.offset_x = offsetX;
-      calibration.offset_y = offsetY;
-      calibration.anchor = "Police Department · postal 316";
-      calibration.anchor_samples = values[4];
-    }
-  }
-  return calibration;
+  const fit = fitMapCalibration(anchors?.results || []);
+  if (fit) return { ...calibration, ...fit };
+  return {
+    ...calibration,
+    mode: "published-fallback",
+    method: "Fallback transform; awaiting at least six consistent multi-point anchors",
+    scale_x: PUBLISHED_MAP_SCALE,
+    offset_x: PUBLISHED_MAP_OFFSET_X,
+    scale_z: PUBLISHED_MAP_SCALE,
+    offset_z: PUBLISHED_MAP_OFFSET_Y,
+    anchor_count: 0
+  };
 }
 
 function transformLiveItems(items, calibration) {
@@ -303,7 +443,7 @@ export default {
         referenceLocations: index.staticCount,
         availableSearchEntries: synthetic.length,
         attribution: "Map reference data by ERLC Tools (https://erlc-tools.com); free to use, credit appreciated",
-        calibration: "ERLC Tools Fall 2026 published API/map transform"
+        calibration: calibration?.mode || "published-fallback", calibrationDetails: calibration
       };
       // The current CAD resolver searches liveSnapshot.players. Civilian entries
       // are intentionally skipped by the map renderer, so they are searchable
