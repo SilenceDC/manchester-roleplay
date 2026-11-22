@@ -409,7 +409,7 @@ export default {
   }
 };
 
-export class TexasGateway extends DurableObject {
+export class ManchesterGateway extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.ctx = ctx;
