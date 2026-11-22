@@ -8,7 +8,7 @@ Private source repository for the Texas State Roleplay ER:LC community platform.
 | --- | --- | --- |
 | `bot/index.js` | `manchester-roleplay-bot` | Discord bot, slash commands, Gateway automod and moderation |
 | `website/index.js` | `manchester-roleplay-site` | Public website, Discord staff sign-in, moderation dashboard and CAD |
-| `data/index.js` | `manchester-roleplay-data` | Shared API and D1-backed application records |
+| `data/index.js` | `manchester-roleplay-data` | Shared API and Turso-backed application records |
 | `map-data/index.js` | `manchester-roleplay-map-data` | Live CAD map proxy, coordinate transforms and map location index |
 
 ## Checks and deployment
