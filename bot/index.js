@@ -8,10 +8,10 @@ const PUBLIC_KEY = "61eaafd4c8e2b5531497e7e7682393d80fd19567186670df7c7802124573
 const SITE_URL = "https://manchester-roleplay-site.greatermanchesterroleplay.workers.dev";
 const INVITE = "https://discord.gg/7q2Hr63YH";
 const COMMANDS = [
-  { name: "ping", description: "Check whether Manchester Roleplay bot is online.", type: 1 },
-  { name: "help", description: "See the Manchester Roleplay bot commands.", type: 1 },
-  { name: "server", description: "Get the Manchester Roleplay Discord invite.", type: 1 },
-  { name: "website", description: "Get the Manchester Roleplay website.", type: 1 },
+  { name: "ping", description: "Check whether Texas State Roleplay bot is online.", type: 1 },
+  { name: "help", description: "See the Texas State Roleplay bot commands.", type: 1 },
+  { name: "server", description: "Get the Texas State Roleplay Discord invite.", type: 1 },
+  { name: "website", description: "Get the Texas State Roleplay website.", type: 1 },
   { name: "departments", description: "View the community's roleplay departments.", type: 1 },
   { name: "rules", description: "Read the community standards reminder.", type: 1 },
   { name: "erlc", description: "View live ER:LC server status.", type: 1 },
@@ -66,7 +66,7 @@ function gatewayStub(env) {
   return env.DISCORD_GATEWAY.get(id);
 }
 function dataRequest(env, path, init = {}) {
-  if (!env.MANCHESTER_DATA) throw new Error("Manchester data service binding is missing.");
+  if (!env.MANCHESTER_DATA) throw new Error("Texas data service binding is missing.");
   return env.MANCHESTER_DATA.fetch("https://manchester-data.internal" + path, init);
 }
 async function startGateway(env) {
@@ -103,7 +103,7 @@ async function erlcInteraction(name,env){
   else if(name==="queue"){title="Server queue";lines=erlcList(data.Queue);if(!lines.length)lines=["The queue is empty."]}
   else if(name==="calls"){title="Emergency calls";lines=erlcList(data.EmergencyCalls);if(!lines.length)lines=["No emergency calls reported."]}
   else if(name==="vehicles"){title="Server vehicles";lines=erlcList(data.Vehicles);if(!lines.length)lines=["No vehicles reported."]}
-  else lines=["Server: "+(data.Name||"Manchester Roleplay"),"Players: "+(data.CurrentPlayers??"Unknown")+" / "+(data.MaxPlayers??"Unknown"),"Join key: "+(data.JoinKey||"Not provided"),"Team balance: "+(data.TeamBalance===true?"Enabled":data.TeamBalance===false?"Disabled":"Unknown")];
+  else lines=["Server: "+(data.Name||"Texas State Roleplay"),"Players: "+(data.CurrentPlayers??"Unknown")+" / "+(data.MaxPlayers??"Unknown"),"Join key: "+(data.JoinKey||"Not provided"),"Team balance: "+(data.TeamBalance===true?"Enabled":data.TeamBalance===false?"Disabled":"Unknown")];
   return {type:4,data:{content:("**"+title+"**\n"+lines.join("\n")).slice(0,1900),flags:64,allowed_mentions:{parse:[]}}};
  }catch(e){return {type:4,data:{content:"ER:LC integration error: "+String(e.message||e).slice(0,350),flags:64,allowed_mentions:{parse:[]}}}}
 }
@@ -118,7 +118,7 @@ async function moderationRun(env, interaction, name) {
  const opts=Object.fromEntries((interaction.data?.options||[]).map(x=>[x.name,x.value]));
  const user=interaction.member?.user||interaction.user||{};
  if(name==="modlogs"){ if(!owner&&!ia&&!admin) return reply("Internal Affairs, Admin or Ownership access is required."); const r=await dataRequest(env, "/modlogs"); const d=await r.json(); const rows=(d.logs||[]).slice(0,12); return reply("**Recent moderation records**\n"+(rows.length?rows.map(x=>"- "+x.at+" · "+x.action+" · "+x.player+" · "+x.staff+" · "+(x.ok?"Success":"Failed")+" · "+x.reason).join("\n"):"No records yet.")); }
- if(name==="kick"&&!mod) return reply("The Manchester Roleplay Staff role or higher is required.");
+ if(name==="kick"&&!mod) return reply("The Texas State Roleplay Staff role or higher is required.");
  if(["ban","unban","erlc-command"].includes(name)&&!admin) return reply("Admin or Ownership role is required.");
  let player=String(opts.player||"").trim(), reason=String(opts.reason||"").replace(/[\r\n]/g," ").trim().slice(0,160), command="";
  if(["kick","ban","unban"].includes(name)){
@@ -157,7 +157,7 @@ async function banBoloInteraction(env, interaction) {
  const admin=owner||roles.includes("1573038142963978441");
  const staff=admin||roles.includes("1573028899405693049");
  const reply=(content)=>({type:4,data:{content,allowed_mentions:{parse:[]}}});
- if(!staff)return reply("Manchester Roleplay Staff or Admin access is required to submit a Ban BOLO.");
+ if(!staff)return reply("Texas State Roleplay Staff or Admin access is required to submit a Ban BOLO.");
  if(interaction.channel_id && interaction.channel_id!==CHANNELS.commands)return reply("Ban BOLO submissions are only available in the designated Commands channel.");
  const opts=Object.fromEntries((interaction.data?.options||[]).map(x=>[x.name,x.value]));
  const player=String(opts.player||"").trim(),reason=String(opts.reason||"").trim();
@@ -205,11 +205,11 @@ async function banBoloReviewInteraction(env, interaction) {
 
 function commandResponse(name) {
   const messages = {
-    ping: "Pong! Manchester Roleplay bot is online. ✅",
-    help: "**Manchester Roleplay bot**\n/ping — bot status\n/help — show commands\n/erlc — server status\n/players — online players\n/kick — moderator action (Staff+)\n/ban and /unban — Admin+\n/ban-bolo — submit a ban request for Admin review (Staff+)\n/erlc-command — approved server commands (Admin+)\n/modlogs — Internal Affairs, Admin and Ownership",
-    server: "Join Manchester Roleplay: " + INVITE,
-    website: "Manchester Roleplay website: " + SITE_URL,
-    departments: "**Roleplay departments**\n🚓 Greater Manchester Police\n🚒 Greater Manchester Fire & Rescue\n🚑 North West Ambulance Service\n\nCheck the community Discord for recruitment information: " + INVITE,
+    ping: "Pong! Texas State Roleplay bot is online. ✅",
+    help: "**Texas State Roleplay bot**\n/ping — bot status\n/help — show commands\n/erlc — server status\n/players — online players\n/kick — moderator action (Staff+)\n/ban and /unban — Admin+\n/ban-bolo — submit a ban request for Admin review (Staff+)\n/erlc-command — approved server commands (Admin+)\n/modlogs — Internal Affairs, Admin and Ownership",
+    server: "Join Texas State Roleplay: " + INVITE,
+    website: "Texas State Roleplay website: " + SITE_URL,
+    departments: "**Roleplay departments**\n🚓 Texas State Police\n🚒 Texas Fire & Rescue\n🚑 Texas EMS\n\nCheck the community Discord for recruitment information: " + INVITE,
     rules: "**Community standards**\n• Respect everyone.\n• Keep roleplay fair and avoid exploiting.\n• Follow community rules and session-host guidance.\n• Help new members feel welcome.\nSee the Discord server for the full rules."
   };
   return { type: 4, data: { content: messages[name] || "I don't recognise that command. Use /help.", allowed_mentions: { parse: [] } } };
@@ -220,12 +220,12 @@ export default {
     // Keep Discord connected independently of the one-time legacy data migration.
     try {
       const gateway = await startGateway(env);
-      console.log("Manchester Discord Gateway scheduled health check:", gateway.status || "unknown");
+      console.log("Texas Discord Gateway scheduled health check:", gateway.status || "unknown");
       const recoveryResponse = await gatewayStub(env).fetch("https://gateway-control/recover", { method: "POST" });
       const recovery = await recoveryResponse.json();
-      console.log("Manchester Discord recovery scan:", recovery.complete ? "complete" : (recovery.status || "continuing"));
+      console.log("Texas Discord recovery scan:", recovery.complete ? "complete" : (recovery.status || "continuing"));
     } catch (error) {
-      console.error("Manchester Discord Gateway start failed:", String(error.message || error));
+      console.error("Texas Discord Gateway start failed:", String(error.message || error));
     }
     try {
       const statusResponse = await dataRequest(env, "/meta/status");
@@ -238,9 +238,9 @@ export default {
       const importResponse = await dataRequest(env, "/legacy/import", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(legacy) });
       const imported = await importResponse.json();
       if (!importResponse.ok || !imported.ok) throw new Error(imported.error || "Legacy data import failed.");
-      console.log("Manchester legacy data migration completed.", imported.imported);
+      console.log("Texas legacy data migration completed.", imported.imported);
     } catch (error) {
-      console.error("Manchester legacy data migration will retry without stopping the Gateway:", String(error.message || error));
+      console.error("Texas legacy data migration will retry without stopping the Gateway:", String(error.message || error));
     }
   },
   async fetch(request, env, ctx) {
@@ -259,7 +259,7 @@ export default {
         dataMigration = { status: "unavailable", reason: String(e.message || e).slice(0, 220) };
       }
       return json({
-        service: "Manchester Roleplay Discord bot",
+        service: "Texas State Roleplay Discord bot",
         application_id: APP_ID,
         test_server_id: GUILD_ID,
         token_configured: Boolean(tokenFrom(env)),
@@ -277,7 +277,7 @@ export default {
       const parts=serverKey.split("-");
       if(parts.length!==2||!parts[1]) return json({ok:false,error:"Could not derive the ER:LC internal server ID from the configured server key."},400);
       const authorizationUrl="https://api.erlc.gg/server-owners/server/"+encodeURIComponent(parts[1])+"/authorize/249265190143097686";
-      return json({ok:true,authorization_url:authorizationUrl,instructions:"Open this link while signed in to the Roblox account that owns the Manchester Roleplay private server, then approve Manchester Roleplay Management."});
+      return json({ok:true,authorization_url:authorizationUrl,instructions:"Open this link while signed in to the Roblox account that owns the Texas State Roleplay private server, then approve Texas State Roleplay Management."});
     }
     if (request.method === "GET" && url.pathname === "/erlc/status") {
       try { const d=await erlcServerData(env); return json({ok:true,server:d.Name,current_players:d.CurrentPlayers,max_players:d.MaxPlayers,team_balance:d.TeamBalance}); }
@@ -304,7 +304,7 @@ export default {
       if(!botToken) return json({ok:false,error:"Discord bot token is not configured."},503);
       const mr=await fetch("https://discord.com/api/v10/guilds/"+GUILD_ID+"/members/"+user.id,{headers:{authorization:"Bot "+botToken}});
       const member=await mr.json().catch(()=>({}));
-      if(!mr.ok||!Array.isArray(member.roles)) return json({ok:false,error:mr.status===404?"You must be a member of the Manchester Roleplay Discord server.":"Could not verify Discord server membership (HTTP "+mr.status+"). Please try again."},mr.status===404?403:502);
+      if(!mr.ok||!Array.isArray(member.roles)) return json({ok:false,error:mr.status===404?"You must be a member of the Texas State Roleplay Discord server.":"Could not verify Discord server membership (HTTP "+mr.status+"). Please try again."},mr.status===404?403:502);
       const roles=member.roles, owner=roles.includes("1573038226510192864");
       const admin=owner||roles.includes("1573038142963978441"), ia=roles.includes("1573038132289343609"), staff=roles.includes("1573028899405693049");
       const canKick=admin||staff, canManage=admin, canViewLogs=admin||ia;
@@ -409,7 +409,7 @@ export default {
   }
 };
 
-export class ManchesterGateway extends DurableObject {
+export class TexasGateway extends DurableObject {
   constructor(ctx, env) {
     super(ctx, env);
     this.ctx = ctx;
@@ -582,7 +582,7 @@ export class ManchesterGateway extends DurableObject {
         socket.send(JSON.stringify({ op: 6, d: { token: tokenFrom(this.env), session_id: savedSession, seq: savedSequence } }));
         await this.state("resuming", { detail: "Discord Hello received; attempting session resume" });
       } else {
-        socket.send(JSON.stringify({ op: 2, d: { token: tokenFrom(this.env), intents: 33287, properties: { os: "cloudflare-workers", browser: "manchester-roleplay", device: "manchester-roleplay" }, presence: { status: "online", since: null, activities: [{ name: "Manchester Roleplay | ER:LC", type: 0 }], afk: false } } }));
+        socket.send(JSON.stringify({ op: 2, d: { token: tokenFrom(this.env), intents: 33287, properties: { os: "cloudflare-workers", browser: "manchester-roleplay", device: "manchester-roleplay" }, presence: { status: "online", since: null, activities: [{ name: "Texas State Roleplay | ER:LC", type: 0 }], afk: false } } }));
         await this.state("identifying", { detail: "Discord Hello received; sending Identify" });
       }
       await this.ctx.storage.setAlarm(Date.now() + Math.max(1000, Math.floor(this.heartbeatInterval * 0.75)));
@@ -617,7 +617,7 @@ export class ManchesterGateway extends DurableObject {
       if (this.sessionId) await this.ctx.storage.put("discord_session_id", this.sessionId);
       if (this.resumeGatewayUrl) await this.ctx.storage.put("discord_resume_gateway_url", this.resumeGatewayUrl);
       this.reconnectSeconds = 5;
-      await this.state("recovering", { detail: "Gateway READY; reconciling recent messages and audit logs", user: packet.d.user?.username || "Manchester Roleplay bot", user_id: packet.d.user?.id });
+      await this.state("recovering", { detail: "Gateway READY; reconciling recent messages and audit logs", user: packet.d.user?.username || "Texas State Roleplay bot", user_id: packet.d.user?.id });
       await this.runRecoveryScan("fresh Gateway session");
     } else if (packet.op === 0 && packet.t === "RESUMED") {
       this.reconnectSeconds = 5;
@@ -641,7 +641,7 @@ export class ManchesterGateway extends DurableObject {
     if(eventName==="MESSAGE_CREATE"||eventName==="MESSAGE_UPDATE"){const author=data.author||{};if(!data.id||!data.channel_id||!author.id||author.bot||author.id===this.botUserId){await markGeneralCursor();return;}const content=String(data.content||"");
       if(data.channel_id===CHANNELS.announcements){const entry={id:data.id,author:author.global_name||author.username||"Community member",authorId:author.id,content:content.slice(0,4000),createdAt:data.timestamp||new Date().toISOString(),editedAt:data.edited_timestamp||null,attachments:(data.attachments||[]).slice(0,8).map(x=>({url:x.url,filename:x.filename,content_type:x.content_type||""})),embeds:(data.embeds||[]).slice(0,5).map(x=>({title:x.title||"",description:String(x.description||"").slice(0,1000),url:x.url||""}))};const saved=await dataRequest(this.env,"/announcement-upsert",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify(entry)});if(!saved.ok)throw new Error("Announcement could not be saved to the website data store (HTTP "+saved.status+")");const rows=await this.ctx.storage.get("website_announcements")||[];const keep=rows.filter(x=>x.id!==entry.id);keep.unshift(entry);await this.ctx.storage.put("website_announcements",keep.slice(0,100));return;}
       if(data.channel_id!==CHANNELS.general)return;let roles=data.member?.roles;if(!Array.isArray(roles)){try{const mr=await fetch("https://discord.com/api/v10/guilds/"+GUILD_ID+"/members/"+author.id,{headers:{Authorization:"Bot "+tokenFrom(this.env)}});if(mr.ok)roles=(await mr.json()).roles||[];}catch{}}
-      const bypass=(roles||[]).some(id=>ROLE_IDS.includes(id)),violation=automodViolation(content,bypass);if(violation){let ok=false,result="";try{const r=await fetch("https://discord.com/api/v10/channels/"+encodeURIComponent(data.channel_id)+"/messages/"+encodeURIComponent(data.id),{method:"DELETE",headers:{Authorization:"Bot "+tokenFrom(this.env)}});ok=r.status===204;if(!ok)result="Discord deletion failed (HTTP "+r.status+")";}catch(e){result=String(e.message||e).slice(0,160);}if(this.recoveryRunning){await this.ctx.storage.put("recovery_violation_found",(await this.ctx.storage.get("recovery_violation_found")||0)+1);await this.ctx.storage.put(ok?"recovery_deleted":"recovery_delete_failed",(await this.ctx.storage.get(ok?"recovery_deleted":"recovery_delete_failed")||0)+1);}await addLog({action:"automod_"+violation,player:author.username||author.global_name||author.id,user_id:author.id,channel_id:data.channel_id,message_id:data.id,content:content.slice(0,300),id:"automod-"+data.id,ok,result:result||"Message removed automatically",staff:"Manchester Roleplay AutoMod",reason:violation==="profanity"?"Prohibited profanity, slur or discriminatory language":"Links are staff-only; GIF links are allowed"},"moderation");await markGeneralCursor();return;}
+      const bypass=(roles||[]).some(id=>ROLE_IDS.includes(id)),violation=automodViolation(content,bypass);if(violation){let ok=false,result="";try{const r=await fetch("https://discord.com/api/v10/channels/"+encodeURIComponent(data.channel_id)+"/messages/"+encodeURIComponent(data.id),{method:"DELETE",headers:{Authorization:"Bot "+tokenFrom(this.env)}});ok=r.status===204;if(!ok)result="Discord deletion failed (HTTP "+r.status+")";}catch(e){result=String(e.message||e).slice(0,160);}if(this.recoveryRunning){await this.ctx.storage.put("recovery_violation_found",(await this.ctx.storage.get("recovery_violation_found")||0)+1);await this.ctx.storage.put(ok?"recovery_deleted":"recovery_delete_failed",(await this.ctx.storage.get(ok?"recovery_deleted":"recovery_delete_failed")||0)+1);}await addLog({action:"automod_"+violation,player:author.username||author.global_name||author.id,user_id:author.id,channel_id:data.channel_id,message_id:data.id,content:content.slice(0,300),id:"automod-"+data.id,ok,result:result||"Message removed automatically",staff:"Texas State Roleplay AutoMod",reason:violation==="profanity"?"Prohibited profanity, slur or discriminatory language":"Links are staff-only; GIF links are allowed"},"moderation");await markGeneralCursor();return;}
       if(eventName==="MESSAGE_UPDATE")await addLog({action:"message_edited",player:author.username||author.global_name||author.id,user_id:author.id,channel_id:data.channel_id,message_id:data.id,content:content.slice(0,200),ok:true,staff:"Discord Gateway",reason:"Message edit event"},"audit");await markGeneralCursor();return;}
     if(eventName==="MESSAGE_DELETE"){if(data.channel_id===CHANNELS.announcements){const deleted=await dataRequest(this.env,"/announcement-delete",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({id:data.id})});if(!deleted.ok)throw new Error("Announcement could not be deleted from the website data store (HTTP "+deleted.status+")");const rows=await this.ctx.storage.get("website_announcements")||[];await this.ctx.storage.put("website_announcements",rows.filter(x=>x.id!==data.id));}await addLog({id:"discord-message-delete-"+(data.id||crypto.randomUUID()),action:"message_deleted",player:"Unknown",channel_id:data.channel_id||"",message_id:data.id||"",ok:true,staff:"Discord Gateway",reason:"Message deletion event"},"audit");return;}
     if(eventName==="GUILD_MEMBER_ADD"||eventName==="GUILD_MEMBER_REMOVE"){const u=data.user||{};await addLog({action:eventName==="GUILD_MEMBER_ADD"?"member_joined":"member_left",player:u.username||u.global_name||u.id||"Unknown",user_id:u.id||"",ok:true,staff:"Discord Gateway",reason:eventName==="GUILD_MEMBER_ADD"?"Member joined":"Member left"},"audit");return;}
@@ -721,7 +721,7 @@ export class ManchesterGateway extends DurableObject {
     const found = await this.ctx.storage.get("recovery_violation_found") || 0;
     const deleted = await this.ctx.storage.get("recovery_deleted") || 0;
     const failed = await this.ctx.storage.get("recovery_delete_failed") || 0;
-    const embed = { title: "Manchester Roleplay — Gateway outage recovery", color: 3066993, description: "The Discord Gateway has reconnected and its recovery scan has completed.", fields: [
+    const embed = { title: "Texas State Roleplay — Gateway outage recovery", color: 3066993, description: "The Discord Gateway has reconnected and its recovery scan has completed.", fields: [
       { name: "Downtime", value: duration, inline: true },
       { name: "Messages scanned", value: String(messages.scanned), inline: true },
       { name: "Audit entries found", value: String(audit.scanned), inline: true },
@@ -730,7 +730,7 @@ export class ManchesterGateway extends DurableObject {
       { name: "Deletion failures", value: String(failed), inline: true },
       { name: "Recovery started", value: "<t:"+Math.floor(start/1000)+":F>", inline: false },
       { name: "Recovery completed", value: "<t:"+Math.floor(end/1000)+":F>", inline: false }
-    ], footer: { text: "Manchester Roleplay • Automatic recovery report" }, timestamp: new Date(end).toISOString() };
+    ], footer: { text: "Texas State Roleplay • Automatic recovery report" }, timestamp: new Date(end).toISOString() };
     const payload = { embeds: [embed], allowed_mentions: { parse: [] } };
     const queue = await this.ctx.storage.get("pending_discord_logs") || [];
     queue.unshift({ target: CHANNELS.outage, payload, id: reportId });
