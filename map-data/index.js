@@ -211,13 +211,16 @@ function fitMapCalibration(points) {
 }
 
 function mapToLegacyFormula(apiLocationX, apiLocationZ, calibration = null) {
-  const calibrated = calibration?.mode === "multi-point-affine";
-  const scaleX = calibrated ? Number(calibration.scale_x) : PUBLISHED_MAP_SCALE;
-  const scaleZ = calibrated ? Number(calibration.scale_z) : PUBLISHED_MAP_SCALE;
-  const offsetX = calibrated ? Number(calibration.offset_x) : PUBLISHED_MAP_OFFSET_X;
-  const offsetY = calibrated ? Number(calibration.offset_z) : PUBLISHED_MAP_OFFSET_Y;
-  const mapPxX = scaleX * Number(apiLocationX) + offsetX;
-  const mapPxY = scaleZ * Number(apiLocationZ) + offsetY;
+  // ER:LC Tools' verified Fall 2026 map conversion. API LocationX/LocationZ
+  // are half-stud map units, not world studs. The Fall map is rotated 90°:
+  // map X follows world Z; map Y runs opposite world X. The exact conversion
+  // to the 120,000px Fall map is 2000/180 px per world stud.
+  // API -> Fall map pixels: X = 22.222... * LocationX + 508.533...
+  //                         Y = 22.222... * LocationZ + 512.867...
+  // Do not override this with a fitted calibration; the official transform
+  // was checked against live in-game positions and postal/building markers.
+  const mapPxX = PUBLISHED_MAP_SCALE * Number(apiLocationX) + PUBLISHED_MAP_OFFSET_X;
+  const mapPxY = PUBLISHED_MAP_SCALE * Number(apiLocationZ) + PUBLISHED_MAP_OFFSET_Y;
   return mapPxToLegacy(mapPxX, mapPxY);
 }
 
