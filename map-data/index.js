@@ -395,6 +395,7 @@ export default {
       ]);
       return json({
         ok: true,
+        service: "Texas State Roleplay CAD map service",
         database: "manchester-roleplay-map-locations",
         indexedLocations: Number(row?.count || 0),
         referenceLocations: Number(staticRow?.count || 0),
