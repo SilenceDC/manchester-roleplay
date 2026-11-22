@@ -202,7 +202,7 @@ test("map-data uses the dedicated map database and preserves live CAD upstream d
 
 test("all production entrypoints use Texas State Roleplay branding", () => {
   for (const [name, source] of [["bot", bot], ["website", website], ["data", data], ["map-data", map]]) {
-    assert.doesNotMatch(source, /Texas State Roleplay|Texas State Police|Texas Fire &(?:amp;)? Rescue|Texas EMS|\bTexas\b/i, name + " contains outdated Texas branding");
+    assert.match(source, /Texas State Roleplay|Texas State Police|Texas Fire &(?:amp;)? Rescue|Texas EMS|\bTexas\b/i, name + " is missing Texas branding");
   }
   for (const department of ["Texas State Police", "Texas Fire & Rescue", "Texas EMS"]) {
     assert.ok(bot.includes(department), "bot is missing department: " + department);
