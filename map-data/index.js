@@ -1,5 +1,6 @@
 
 let mapLastIndexedAt = 0;
+let mapLastDiagnosticAt = 0;
 
 const json = (value, status = 200, extraHeaders = {}) => new Response(JSON.stringify(value), {
   status,
@@ -403,6 +404,19 @@ export default {
       return json(snapshot, upstream.status, Object.fromEntries(upstream.headers));
     }
 
+    // Temporary, read-only diagnostic: capture raw API player locations before
+    // transformLiveItems mutates the coordinates sent to the CAD renderer.
+    const diagnosticPlayers = Date.now() - mapLastDiagnosticAt >= 30000
+      ? (Array.isArray(snapshot.players) ? snapshot.players.map(item => {
+          const loc = getLocation(item);
+          return {
+            player: text(item?.Player || item?.player || item?.username, 80),
+            rawLocation: loc ? { ...loc } : null
+          };
+        }) : [])
+      : null;
+    if (diagnosticPlayers) mapLastDiagnosticAt = Date.now();
+
     if (Date.now() - mapLastIndexedAt >= 30000) {
       mapLastIndexedAt = Date.now();
       const indexableSnapshot = { ...snapshot, players: Array.isArray(snapshot.players) ? [...snapshot.players] : [], vehicles: Array.isArray(snapshot.vehicles) ? [...snapshot.vehicles] : [], emergencyCalls: Array.isArray(snapshot.emergencyCalls) ? [...snapshot.emergencyCalls] : [] };
@@ -434,6 +448,21 @@ export default {
     transformLiveItems(snapshot.players, calibration);
     transformLiveItems(snapshot.vehicles, calibration);
     transformLiveItems(snapshot.emergencyCalls, calibration);
+
+    if (diagnosticPlayers) {
+      const diagnostic = diagnosticPlayers.map((entry, index) => {
+        const transformed = getLocation(snapshot.players?.[index]);
+        return {
+          player: entry.player,
+          rawLocation: entry.rawLocation,
+          transformedLocation: transformed ? { ...transformed } : null
+        };
+      }).filter(entry => entry.rawLocation);
+      console.info("[CAD_MAP_DIAGNOSTIC]", JSON.stringify({
+        capturedAt: new Date().toISOString(),
+        players: diagnostic
+      }));
+    }
 
     try {
       const index = await buildLocationIndex(env.MAP_LOCATIONS_DB, calibration);
