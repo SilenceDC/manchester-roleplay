@@ -245,7 +245,7 @@ async function loadMapCalibration(db) {
   // the less accurate published-map fallback.
   return {
     ...calibration,
-    mode: "cached-multi-point-affine",
+    mode: "multi-point-affine",
     method: "Last verified production multi-point fit (D1-independent fallback)",
     scale_x: 22.463000459353964,
     offset_x: -397.7855357723238,
