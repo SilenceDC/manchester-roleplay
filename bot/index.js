@@ -97,6 +97,20 @@ const AUTOMOD_PROFANITY = ["fuck","shit","bitch","ass","asshole","arse","arsehol
 const AUTOMOD_PATTERNS = AUTOMOD_PROFANITY.map(term => new RegExp("(^|[^a-z])"+term.split("").join("[^a-z]*")+"($|[^a-z])","i"));
 function automodViolation(content,allowLinks=false){const normalized=String(content||"").toLowerCase().normalize("NFKD").replace(/[\u200B-\u200D\uFEFF]/g,"").replace(/[0]/g,"o").replace(/[1!|]/g,"i").replace(/[3]/g,"e").replace(/[4@]/g,"a").replace(/[5$]/g,"s").replace(/[7]/g,"t");for(const pattern of AUTOMOD_PATTERNS){if(pattern.test(normalized))return "profanity";}if(allowLinks)return "";const links=String(content||"").match(/(?:https?:\/\/|www\.)[^\s<>()]+|(?:^|\s)[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|gg|co|uk|io|dev|app|me|xyz|info|biz|gov|edu|tv|ly|to|link|site|cloud|store)(?:\/[^\s<>()]*)?/gi)||[];for(const link of links){const raw=link.trim();let u;try{u=new URL(/^https?:\/\//i.test(raw)?raw:"https://"+raw);}catch{return "unapproved_link";}const host=u.hostname.toLowerCase(),path=u.pathname.toLowerCase(),gif=path.endsWith(".gif")||path.endsWith(".gifv")||host==="tenor.com"||host.endsWith(".tenor.com")||host==="giphy.com"||host.endsWith(".giphy.com");if(gif)continue;return "unapproved_link";}return "";}
 async function discordChannelMessage(env,channelId,payload){const token=tokenFrom(env);if(!token)throw Error("Discord bot token missing");const r=await fetch("https://discord.com/api/v10/channels/"+encodeURIComponent(channelId)+"/messages",{method:"POST",headers:{Authorization:"Bot "+token,"Content-Type":"application/json"},body:JSON.stringify(payload)});const raw=await r.text();let data=null;try{data=raw?JSON.parse(raw):null;}catch{data={message:raw.slice(0,300)};}if(!r.ok)throw Error("Discord channel post failed (HTTP "+r.status+"): "+String(data?.message||data?.error||raw||"Request failed").slice(0,300));return data;}
+async function clearPreviousSessionStatusMessages(env,channelId){
+  const messages=await discordApi(env,"/channels/"+encodeURIComponent(channelId)+"/messages?limit=100");
+  const bot=await discordApi(env,"/users/@me");
+  const statusTitles=new Set(["SESSION STARTED","SESSION SHUTDOWN","SESSION LOW ON PLAYERS"]);
+  const previous=(Array.isArray(messages)?messages:[]).filter(message=>
+    message.author?.id===bot.id &&
+    Array.isArray(message.embeds) &&
+    message.embeds.some(embed=>statusTitles.has(String(embed.title||"").toUpperCase()))
+  );
+  for(const message of previous){
+    await discordApi(env,"/channels/"+encodeURIComponent(channelId)+"/messages/"+encodeURIComponent(message.id),{method:"DELETE"});
+  }
+  return previous.length;
+}
 async function sendModerationLog(env,text){try{await discordChannelMessage(env,CHANNELS.moderation,{content:String(text).slice(0,1900),allowed_mentions:{parse:[]}});}catch(e){console.error("Moderation log delivery failed",e.message);}}
 function erlcList(value,limit=14){
  if(Array.isArray(value)) return value.slice(0,limit).map(x=>typeof x==="string"||typeof x==="number"?String(x):[x?.Username,x?.Name,x?.Player,x?.User,x?.Vehicle,x?.Team].filter(Boolean).join(" · ")||JSON.stringify(x));
@@ -632,21 +646,17 @@ async function serverSessionCommand(env,interaction) {
   if (action === "invite") return workflowReply("Join Texas State Roleplay: " + INVITE);
   const labels = {"start-up":"SESSION STARTED","shutdown":"SESSION SHUTDOWN","low-on-players":"SESSION LOW ON PLAYERS"};
   if (!labels[action]) return workflowReply("Choose start-up, shutdown or low-on-players.");
-  const user = interactionUser(interaction), now = new Date().toISOString(), sessionId = new Date().toISOString().replace(/[:.]/g,"-");
-  let archive = null, archiveError = "";
-  if (action === "shutdown") {
-    try { archive = await archiveInGameLogs(env,sessionId); }
-    catch (error) { archiveError = String(error.message || error).slice(0,500); }
-  }
-  if (!CHANNELS.sessions) return workflowReply(action === "shutdown" && archive ? "The shutdown logs were archived to <#" + CHANNELS.logArchive + ">. The session announcement was not posted because its channel ID has not been configured yet." : "The session announcement channel has not been configured yet. Send Ownership the channel ID for session embeds.");
+  if (!CHANNELS.sessions) return workflowReply("The session announcement channel has not been configured yet. Send Ownership the channel ID for session embeds.");
+  const user = interactionUser(interaction), now = new Date().toISOString();
   const description = action === "start-up" ? "A new Texas State Roleplay ER:LC session is now starting. Join the server and follow all session instructions."
-    : action === "shutdown" ? "The Texas State Roleplay ER:LC session is shutting down." + (archive ? "\n\n**ER:LC log records archived:** " + (archive.counts.commandLogs+archive.counts.modCalls+archive.counts.joinLogs+archive.counts.killLogs) + "\n**Website moderation records archived:** " + archive.counts.websiteModerationLogs + "\n**Turso website records removed:** " + archive.websiteLogsDeleted + "\nSaved to <#" + CHANNELS.logArchive + ">." + (archive.cleanupError ? "\n\n**Cleanup warning:** " + archive.cleanupError + " (the records were retained in Turso)." : "") : "\n\n**Log archive warning:** " + (archiveError || "No log archive was created.") )
+    : action === "shutdown" ? "The Texas State Roleplay ER:LC session has been shut down."
     : "The server is currently low on players. More community members are needed to keep the session active.";
   const color = action === "start-up" ? 5763719 : action === "shutdown" ? 15548997 : 16763904;
   try {
-    await discordChannelMessage(env,CHANNELS.sessions,{embeds:[{title:labels[action],description, color,fields:[{name:"Session host",value:"<@" + user.id + ">"},{name:"Time",value:now}],timestamp:now,footer:{text:"Texas State Roleplay • Server Sessions"}}],allowed_mentions:{users:[user.id],parse:[]}});
-  } catch (error) { return workflowReply("The session archive was processed, but the session embed could not be posted: " + error.message); }
-  return workflowReply("Posted **" + labels[action] + "** to the session channel." + (action === "shutdown" && archiveError ? " Log archive error: " + archiveError : ""));
+    await clearPreviousSessionStatusMessages(env,CHANNELS.sessions);
+    await discordChannelMessage(env,CHANNELS.sessions,{embeds:[{title:labels[action],description,color,fields:[{name:"Session host",value:"<@" + user.id + ">"},{name:"Time",value:now}],timestamp:now,footer:{text:"Texas State Roleplay • Server Sessions"}}],allowed_mentions:{users:[user.id],parse:[]}});
+  } catch (error) { return workflowReply("Could not update the session channel: " + error.message); }
+  return workflowReply("Updated the session channel with **" + labels[action] + "**. The previous bot session-status embed was removed.");
 }
 async function workflowCommand(env,interaction,name) {
   if (name === "server") return serverSessionCommand(env,interaction);
