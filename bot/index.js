@@ -672,7 +672,7 @@ async function workflowCommand(env,interaction,name) {
     const state = interactionRoleState(interaction);
     if (!state.owner) return workflowReply("Only Ownership can delete Fast Pass applications.");
     const id = String(interaction.data?.options?.find(option => option.name === "id")?.value || "").trim().toUpperCase();
-    if (!/^FP-\\d{4}$/.test(id)) return workflowReply("Enter a valid Fast Pass ID, for example FP-0003.");
+    if (!/^FP-\d{4}$/.test(id)) return workflowReply("Enter a valid Fast Pass ID, for example FP-0003.");
     try {
       const result = await workflowData(env,"/workflow/fastpass-delete","POST",{id});
       return workflowReply(result.deleted ? id + " has been deleted" + (result.clearedPending ? " and its matching pending-submission lock was cleared." : ".") : id + " was not found; no other Fast Pass applications were changed.");
