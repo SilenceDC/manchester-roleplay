@@ -42,6 +42,6 @@ The bot uses the existing Turso-backed `app_state` records for ticket/Fast Pass 
 - `/staff-record` has `promotion`, `infraction`, `warning`, and `strike` subcommands for the corresponding staff-record channels.
 - On `/server shutdown`, the bot requests ER:LC v2 CommandLogs, ModCalls, JoinLogs, and KillLogs and exports website moderation records into a JSON archive in `1574355077861351454`. It clears the matching Turso moderation rows only after Discord confirms the archive upload; on upload failure the stored logs remain untouched.
 
-The session announcement channel is intentionally left unset until its channel ID is supplied. The session commands post Discord announcements; they do not power the ER:LC server on or off.
+The session announcement and shutdown archive channel is `1574355077861351454`. Session commands post Discord announcements; they do not power the ER:LC server on or off.
 
 Post the ticket and Fast Pass panels once after deploying by running `/ticket-panel` and `/fastpass-panel` as Admin, Internal Affairs, or Ownership. The bot needs View Channel, Send Messages, Embed Links, Attach Files, Read Message History, Manage Channels, and permission to create private channel overwrites for the configured support roles.
