@@ -370,5 +370,8 @@ test("shutdown log archive exports website moderation logs and only clears Turso
 test("session announcement and database archive embeds share the configured session channel", () => {
   assert.ok(bot.includes('sessions:"1574355077861351454"'));
   assert.ok(bot.includes('logArchive:"1574355077861351454"'));
-  assert.ok(!bot.includes('if (!CHANNELS.sessions) return workflowReply'));
+  const shutdown = bot.indexOf('if (action === "shutdown")');
+  const channelGuard = bot.indexOf('if (!CHANNELS.sessions) return workflowReply', shutdown);
+  const archive = bot.indexOf("archiveInGameLogs(env,sessionId)", shutdown);
+  assert.ok(shutdown >= 0 && archive > shutdown && channelGuard > archive, "shutdown archive should still run before any optional session-channel check");
 });
