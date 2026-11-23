@@ -32,6 +32,12 @@ Cloudflare is the production runtime. Existing Worker bindings and persistent re
 
 Only the four Texas State Roleplay Workers listed above are included. Legacy TSRP/Government projects and Workers are intentionally excluded and must not be changed as part of this project.
 
+## CAD map protection
+
+The CAD map and its verified coordinate/rendering system are owner-protected. Do not modify map tiles, map data, coordinate conversion, the `/128` scale, zero offsets, CSS map transform, dimensions, or alignment without the project owner's explicit approval. If a task appears to require a map change, stop and ask first.
+
+Read the mandatory rules in [`CAD_MAP_PROTECTION.md`](./CAD_MAP_PROTECTION.md) before making CAD changes. This applies to all contributors, automation, and AI assistants.
+
 ## Discord workflow features
 
 The bot uses the existing Turso-backed `app_state` records for ticket/Fast Pass numbering and workflow state.
