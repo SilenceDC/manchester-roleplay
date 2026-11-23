@@ -307,3 +307,25 @@ test("Texas data API keeps D1 as the safe default until an explicit Turso cutove
   });
   assert.ok(db instanceof TursoDatabase);
 });
+
+
+test("Texas State Roleplay workflow commands are registered", () => {
+  const names = slashCommands.map(command => command.name);
+  for (const name of ["server","ticket-panel","close-ticket","fastpass-panel","staff-record"]) assert.ok(names.includes(name), "missing workflow command: " + name);
+  const server = slashCommands.find(command => command.name === "server");
+  assert.deepEqual(server.options.map(option => option.name), ["start-up","shutdown","low-on-players","invite"]);
+  const records = slashCommands.find(command => command.name === "staff-record");
+  assert.deepEqual(records.options.map(option => option.name), ["promotion","infraction","warning","strike"]);
+});
+
+test("ticket, Fast Pass, session and archive workflow routes are present", () => {
+  for (const route of ["/workflow/ticket-create","/workflow/ticket-update","/workflow/ticket-ping","/workflow/fastpass-create","/workflow/fastpass-update","/workflow/record","/workflow/archive"]) {
+    assert.ok(data.includes(route), "missing Turso workflow route: " + route);
+  }
+  for (const fragment of ["ticketComponent","ticketTranscript","fastpassModal","fastpassComponent","archiveInGameLogs","serverSessionCommand","staffRecordCommand"]) {
+    assert.ok(bot.includes("function " + fragment) || bot.includes("async function " + fragment), "missing Discord workflow handler: " + fragment);
+  }
+  for (const channel of ["1574355318560002118","1574355361627111506","1574357055840587886","1574357769266528306","1574357807484899418","1574355077861351454","1574355190536998912","1574358164722159739","1574355158727393361","1574355114469101670"]) {
+    assert.ok(bot.includes(channel), "missing configured workflow channel: " + channel);
+  }
+});
