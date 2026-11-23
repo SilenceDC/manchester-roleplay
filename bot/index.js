@@ -2,15 +2,15 @@ import { DurableObject } from "cloudflare:workers";
 
 const APP_ID = "1572909135501070397";
 const GUILD_ID = "1572910663787872287";
-const CHANNELS = { audit:"1573271426159484998", pending:"1573271467712319528", commands:"1573271493327200297", moderation:"1573273571562623047", general:"1572910665444884493", announcements:"1573273477194973245", outage:"1573709709092065441" };
+const CHANNELS = { audit:"1573271426159484998", pending:"1573271467712319528", commands:"1573271493327200297", moderation:"1573273571562623047", general:"1572910665444884493", announcements:"1573273477194973245", outage:"1573709709092065441", sessions:"", ticketPanel:"1574355318560002118", ticketCategory:"1574355361627111506", ticketTranscripts:"1574357055840587886", fastpassPanel:"1574357769266528306", fastpassReview:"1574357807484899418", logArchive:"1574355077861351454", promotions:"1574355190536998912", infractions:"1574358164722159739", warnings:"1574355158727393361", strikes:"1574355114469101670" };
 const ROLE_IDS = ["1573028899405693049","1573038142963978441","1573038132289343609","1573038226510192864"];
 const PUBLIC_KEY = "61eaafd4c8e2b5531497e7e7682393d80fd19567186670df7c78021245738174";
-const SITE_URL = "https://manchester-roleplay-site.greatermanchesterroleplay.workers.dev";
+const SITE_URL = "https://texas-state-roleplay-site.greatermanchesterroleplay.workers.dev";
 const INVITE = "https://discord.gg/7q2Hr63YH";
 const COMMANDS = [
   { name: "ping", description: "Check whether Texas State Roleplay bot is online.", type: 1 },
   { name: "help", description: "See the Texas State Roleplay bot commands.", type: 1 },
-  { name: "server", description: "Get the Texas State Roleplay Discord invite.", type: 1 },
+  { name: "server", description: "Post a Texas State Roleplay session update.", type: 1, options: [{type:1,name:"start-up",description:"Announce that the server session has started."},{type:1,name:"shutdown",description:"Announce session shutdown and archive in-game logs."},{type:1,name:"low-on-players",description:"Announce that the session is low on players."},{type:1,name:"invite",description:"Get the Texas State Roleplay Discord invite."}] },
   { name: "website", description: "Get the Texas State Roleplay website.", type: 1 },
   { name: "departments", description: "View the community's roleplay departments.", type: 1 },
   { name: "rules", description: "Read the community standards reminder.", type: 1 },
@@ -25,7 +25,16 @@ const COMMANDS = [
   { name: "unban", description: "Unban a player from ER:LC.", type: 1, options: [{name:"player",description:"Player username or Roblox ID",type:3,required:true},{name:"reason",description:"Reason for the action",type:3,required:true,max_length:160}] },
   { name: "erlc-command", description: "Run an approved ER:LC server command (admins and ownership).", type: 1, options: [{name:"command",description:"Command, with or without the leading colon",type:3,required:true,max_length:160}] },
   { name: "modlogs", description: "View recent moderation records.", type: 1 },
-  { name: "ban-bolo", description: "Submit a player ban request for Admin review.", type: 1, options: [{name:"player",description:"Roblox username or ID",type:3,required:true,max_length:32},{name:"reason",description:"What happened and why a ban is requested",type:3,required:true,max_length:1000},{name:"evidence",description:"Optional HTTPS evidence links separated by spaces",type:3,required:false,max_length:500}] }
+  { name: "ban-bolo", description: "Submit a player ban request for Admin review.", type: 1, options: [{name:"player",description:"Roblox username or ID",type:3,required:true,max_length:32},{name:"reason",description:"What happened and why a ban is requested",type:3,required:true,max_length:1000},{name:"evidence",description:"Optional HTTPS evidence links separated by spaces",type:3,required:false,max_length:500}] },
+  { name: "ticket-panel", description: "Post the public ticket creation panel.", type: 1 },
+  { name: "close-ticket", description: "Close the ticket channel and save its transcript.", type: 1 },
+  { name: "fastpass-panel", description: "Post the Fast Pass application panel.", type: 1 },
+  { name: "staff-record", description: "Create a staff record in the appropriate channel.", type: 1, options: [
+    {type:1,name:"promotion",description:"Record a staff promotion.",options:[{name:"player",description:"Discord or Roblox name",type:3,required:true},{name:"reason",description:"Promotion details",type:3,required:true,max_length:1000},{name:"evidence",description:"Optional evidence URL",type:3,required:false,max_length:500}]},
+    {type:1,name:"infraction",description:"Record a staff infraction.",options:[{name:"player",description:"Staff member",type:3,required:true},{name:"reason",description:"Infraction details",type:3,required:true,max_length:1000},{name:"evidence",description:"Optional evidence URL",type:3,required:false,max_length:500}]},
+    {type:1,name:"warning",description:"Record a staff warning.",options:[{name:"player",description:"Staff member",type:3,required:true},{name:"reason",description:"Warning details",type:3,required:true,max_length:1000},{name:"evidence",description:"Optional evidence URL",type:3,required:false,max_length:500}]},
+    {type:1,name:"strike",description:"Record a staff strike.",options:[{name:"player",description:"Staff member",type:3,required:true},{name:"reason",description:"Strike details",type:3,required:true,max_length:1000},{name:"evidence",description:"Optional evidence URL",type:3,required:false,max_length:500}]}
+  ] }
 ];
 
 function json(data, status = 200) {
@@ -201,6 +210,356 @@ async function banBoloReviewInteraction(env, interaction) {
  await sendModerationLog(env,"**BAN BOLO "+status.replace("_"," ").toUpperCase()+"**\nPlayer: "+bolo.player+"\nReviewed by: "+(user.global_name||user.username||"Admin")+"\nReference: "+id+"\n"+notes[action]);
  const message=interaction.message?.content||("Ban BOLO for "+bolo.player);
  return {type:7,data:{content:message+"\n\n**Admin decision:** "+status.replace("_"," ").toUpperCase()+"\n**Reviewed by:** "+(user.global_name||user.username||"Admin")+"\n**Response:** "+notes[action],components:[],allowed_mentions:{parse:[]}}};
+}
+
+
+function interactionRoleState(interaction) {
+  const roles = interaction.member?.roles || [];
+  const perms = BigInt(interaction.member?.permissions || "0");
+  const owner = roles.includes("1573038226510192864") || (perms & 8n) === 8n;
+  const admin = owner || roles.includes("1573038142963978441");
+  const ia = roles.includes("1573038132289343609");
+  const staff = roles.includes("1573028899405693049");
+  return { roles, owner, admin, ia, staff, manager:owner || admin || ia, moderator:owner || admin || staff };
+}
+function interactionUser(interaction) {
+  return interaction.member?.user || interaction.user || {};
+}
+function workflowReply(content, ephemeral = true) {
+  return { type:4, data:{ content:String(content).slice(0,1900), ...(ephemeral?{flags:64}:{}), allowed_mentions:{parse:[]} } };
+}
+async function discordApi(env, path, init = {}) {
+  const token = tokenFrom(env);
+  if (!token) throw new Error("Discord bot token is not configured.");
+  const headers = new Headers(init.headers || {});
+  headers.set("Authorization","Bot " + token);
+  const isForm = typeof FormData !== "undefined" && init.body instanceof FormData;
+  if (init.body && !isForm && !headers.has("content-type")) headers.set("content-type","application/json");
+  const response = await fetch("https://discord.com/api/v10" + path,{...init,headers});
+  const raw = await response.text();
+  let data = null;
+  try { data = raw ? JSON.parse(raw) : null; } catch { data = { message:raw.slice(0,300) }; }
+  if (!response.ok) throw new Error("Discord API " + response.status + ": " + String(data?.message || data?.error || raw || "Request failed").slice(0,350));
+  return data;
+}
+async function discordFileMessage(env, channelId, payload, filename, content, contentType = "text/plain") {
+  const form = new FormData();
+  form.append("payload_json",JSON.stringify(payload));
+  form.append("files[0]",new Blob([content],{type:contentType}),filename);
+  return discordApi(env,"/channels/" + encodeURIComponent(channelId) + "/messages",{method:"POST",body:form});
+}
+async function workflowData(env,path,method="GET",body) {
+  const init = {method,headers:{"content-type":"application/json"}};
+  if (body !== undefined) init.body = JSON.stringify(body);
+  const response = await dataRequest(env,path,init);
+  const raw = await response.text();
+  let data = {};
+  try { data = JSON.parse(raw); } catch { data = {error:raw.slice(0,300)}; }
+  if (!response.ok || data.ok === false) throw new Error(data.error || "Workflow storage request failed (HTTP " + response.status + ").");
+  return data;
+}
+function ticketSupportRoles(category) {
+  if (category === "ownership") return ["1573038226510192864","1573038142963978441"];
+  if (category === "internal-affairs") return ["1573038132289343609","1573038142963978441","1573038226510192864"];
+  return ["1573028899405693049","1573038132289343609","1573038142963978441","1573038226510192864"];
+}
+function ticketPingRoles(category) {
+  if (category === "ownership") return ["1573038226510192864"];
+  if (category === "internal-affairs") return ["1573038132289343609","1573038142963978441","1573038226510192864"];
+  return ["1573028899405693049","1573038132289343609","1573038142963978441","1573038226510192864"];
+}
+function slug(value) {
+  const out = String(value || "member").toLowerCase().normalize("NFKD").replace(/[^a-z0-9-]+/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"").slice(0,45);
+  return out || "member";
+}
+async function postTicketPanel(env) {
+  const embed = {title:"Texas State Roleplay | Support Center",description:"Choose the ticket type that best fits your request. A private channel will be created for you and the relevant team.\n\n**General Ticket** — General questions, support, and community assistance.\n**Ownership Ticket** — Private matters that need Ownership review.\n**Internal Affairs Ticket** — Staff complaints, staff conduct, or sensitive investigations.\n\nPlease open one ticket per issue and provide clear details. Do not open duplicate tickets.",color:5793266,footer:{text:"Texas State Roleplay • Ticket Support"}};
+  return discordChannelMessage(env,CHANNELS.ticketPanel,{embeds:[embed],components:[{type:1,components:[
+    {type:2,style:1,label:"General Ticket",custom_id:"ticket:create:general"},
+    {type:2,style:2,label:"Ownership",custom_id:"ticket:create:ownership"},
+    {type:2,style:4,label:"Internal Affairs",custom_id:"ticket:create:internal-affairs"}
+  ]}],allowed_mentions:{parse:[]}});
+}
+async function createTicket(env,interaction,category) {
+  const user = interactionUser(interaction);
+  if (!user.id) return workflowReply("Could not identify your Discord account.");
+  if (!["general","ownership","internal-affairs"].includes(category)) return workflowReply("That ticket type is not available.");
+  let created;
+  try { created = await workflowData(env,"/workflow/ticket-create","POST",{ownerId:user.id,username:user.global_name||user.username||"member",category,guildId:GUILD_ID}); }
+  catch (error) {
+    const existing = /already have an open ticket:\s*([0-9]+)/i.exec(error.message);
+    if (existing) {
+      try {
+        const old = await workflowData(env,"/workflow/ticket","GET");
+        return workflowReply("You already have an open ticket. Please use that ticket instead.");
+      } catch {}
+    }
+    return workflowReply(error.message);
+  }
+  const ticket = created.ticket, supportRoles = ticketSupportRoles(category);
+  const viewSend = "117760";
+  const overwrites = [
+    {id:GUILD_ID,type:0,allow:"0",deny:"1024"},
+    {id:user.id,type:1,allow:viewSend,deny:"0"},
+    ...supportRoles.map(id=>({id,type:0,allow:viewSend,deny:"0"}))
+  ];
+  let channel;
+  try {
+    channel = await discordApi(env,"/guilds/" + GUILD_ID + "/channels",{method:"POST",body:JSON.stringify({
+      name:slug((user.username||user.global_name||"member") + "-" + ticket.id),
+      type:0,
+      parent_id:CHANNELS.ticketCategory,
+      topic:"Texas State Roleplay ticket #" + ticket.id + " | owner:" + user.id + " | type:" + category,
+      permission_overwrites:overwrites
+    })});
+    await workflowData(env,"/workflow/ticket-update","POST",{id:ticket.id,status:"open",channelId:channel.id});
+    const intro = {embeds:[{title:"Ticket #" + ticket.id + " • " + category.replace(/-/g," ").toUpperCase(),description:"Welcome <@" + user.id + ">. Please explain your request clearly and include any relevant evidence.\n\n**Ticket owner:** <@" + user.id + ">\n**Ticket type:** " + category.replace(/-/g," ") + "\n**Ticket number:** #" + ticket.id + "\n\nUse **Claim** when a staff member takes responsibility, **Ping Staff** when you need attention, and **Close Ticket** when the matter is resolved.",color:5793266,footer:{text:"Texas State Roleplay Support"}}],components:[{type:1,components:[
+      {type:2,style:4,label:"Close Ticket",custom_id:"ticket:close:" + ticket.id},
+      {type:2,style:2,label:"Claim Ticket",custom_id:"ticket:claim:" + ticket.id},
+      {type:2,style:1,label:"Ping Staff",custom_id:"ticket:ping:" + ticket.id}
+    ]}],allowed_mentions:{users:[user.id]}};
+    await discordChannelMessage(env,channel.id,intro);
+    return workflowReply("Your ticket #" + ticket.id + " has been created: <#" + channel.id + ">.");
+  } catch (error) {
+    try { await workflowData(env,"/workflow/ticket-update","POST",{id:ticket.id,status:"closed",closedAt:new Date().toISOString()}); } catch {}
+    if (channel?.id) { try { await discordApi(env,"/channels/" + channel.id,{method:"DELETE"}); } catch {} }
+    return workflowReply("Ticket creation failed: " + error.message);
+  }
+}
+async function ticketByChannel(env,channelId) {
+  return workflowData(env,"/workflow/ticket?channelId=" + encodeURIComponent(channelId),"GET");
+}
+async function ticketTranscript(env,ticket,channelId,closedBy) {
+  let before = "", messages = [];
+  for (let page=0; page<10; page++) {
+    const query = before ? "?limit=100&before=" + encodeURIComponent(before) : "?limit=100";
+    const batch = await discordApi(env,"/channels/" + channelId + "/messages" + query);
+    if (!Array.isArray(batch) || !batch.length) break;
+    messages.push(...batch);
+    before = batch[batch.length-1].id;
+    if (batch.length < 100) break;
+  }
+  messages.sort((a,b)=>BigInt(a.id)<BigInt(b.id)?-1:1);
+  const lines = [
+    "Texas State Roleplay — Ticket Transcript",
+    "Ticket: #" + ticket.id,
+    "Type: " + ticket.category,
+    "Owner: " + ticket.username + " (" + ticket.ownerId + ")",
+    "Claimed by: " + (ticket.claimedBy || "Unclaimed"),
+    "Closed by: " + (closedBy.global_name || closedBy.username || closedBy.id || "Unknown"),
+    "Exported: " + new Date().toISOString(),
+    "Messages exported: " + messages.length,
+    "============================================================"
+  ];
+  for (const message of messages) {
+    const author = message.author || {};
+    lines.push("[" + (message.timestamp || "") + "] " + (author.global_name || author.username || "Unknown") + " (" + (author.id || "") + "):");
+    if (message.content) lines.push(String(message.content).replace(/\r/g,"").slice(0,4000));
+    for (const attachment of message.attachments || []) lines.push("[Attachment] " + attachment.filename + " — " + attachment.url);
+    for (const embed of message.embeds || []) lines.push("[Embed] " + (embed.title || "") + " " + (embed.description || ""));
+    lines.push("");
+  }
+  const content = lines.join("\n");
+  const payload = {embeds:[{title:"Ticket #" + ticket.id + " closed",description:"Transcript for **" + ticket.username + "** was saved.\nType: " + ticket.category + "\nMessages: " + messages.length + "\nClosed by: <@" + (closedBy.id || ticket.ownerId) + ">",color:15158332,footer:{text:"Texas State Roleplay • Ticket Archive"}}],allowed_mentions:{parse:[]}};
+  return discordFileMessage(env,CHANNELS.ticketTranscripts,payload,"ticket-" + ticket.id + "-transcript.txt",content,"text/plain");
+}
+async function closeTicket(env,interaction,ticketId) {
+  const user = interactionUser(interaction), state = interactionRoleState(interaction);
+  let result;
+  try { result = ticketId ? await workflowData(env,"/workflow/ticket?id=" + encodeURIComponent(ticketId),"GET") : await ticketByChannel(env,interaction.channel_id); }
+  catch (error) { return workflowReply(error.message); }
+  const ticket = result.ticket;
+  const allowed = user.id === ticket.ownerId || state.owner || state.admin || state.ia || state.staff;
+  if (!allowed) return workflowReply("Only the ticket owner or an authorized staff member can close this ticket.");
+  if (ticket.status === "closed") return workflowReply("This ticket is already closed.");
+  try {
+    const archived = await ticketTranscript(env,ticket,interaction.channel_id || ticket.channelId,user);
+    await workflowData(env,"/workflow/ticket-update","POST",{id:ticket.id,status:"closed",closedAt:new Date().toISOString(),transcriptMessageId:archived.id,transcriptChannelId:CHANNELS.ticketTranscripts});
+    await discordApi(env,"/channels/" + ticket.channelId,{method:"DELETE"});
+    return workflowReply("Ticket #" + ticket.id + " was closed and its transcript was saved in the ticket transcripts channel.");
+  } catch (error) {
+    return workflowReply("The ticket was not deleted because the transcript could not be safely saved: " + error.message);
+  }
+}
+async function ticketComponent(env,interaction) {
+  const parts = String(interaction.data?.custom_id || "").split(":");
+  if (parts.length !== 3 || parts[0] !== "ticket") return workflowReply("Unknown ticket action.");
+  const action = parts[1], id = parts[2];
+  if (action === "create") return createTicket(env,interaction,id);
+  let result;
+  try { result = await workflowData(env,"/workflow/ticket?id=" + encodeURIComponent(id),"GET"); }
+  catch (error) { return workflowReply(error.message); }
+  const ticket = result.ticket, user = interactionUser(interaction), state = interactionRoleState(interaction);
+  if (ticket.channelId !== interaction.channel_id) return workflowReply("This ticket button is no longer active in this channel.");
+  const permitted = user.id === ticket.ownerId || state.owner || state.admin || state.ia || state.staff;
+  if (!permitted) return workflowReply("You do not have access to manage this ticket.");
+  if (action === "close") return closeTicket(env,interaction,id);
+  if (action === "claim") {
+    if (!(state.owner || state.admin || state.ia || state.staff)) return workflowReply("Only support staff can claim tickets.");
+    if (ticket.claimedById && ticket.claimedById !== user.id) return workflowReply("This ticket is already claimed by <@" + ticket.claimedById + ">.");
+    const label = user.global_name || user.username || user.id;
+    await workflowData(env,"/workflow/ticket-update","POST",{id,claimedBy:label,claimedById:user.id});
+    await discordChannelMessage(env,ticket.channelId,{content:"<@" + user.id + "> has claimed ticket #" + id + ".",allowed_mentions:{users:[user.id]}});
+    return workflowReply("You have claimed ticket #" + id + ".");
+  }
+  if (action === "ping") {
+    try { await workflowData(env,"/workflow/ticket-ping","POST",{id}); }
+    catch (error) { return workflowReply(error.message); }
+    const roles = ticketPingRoles(ticket.category);
+    await discordChannelMessage(env,ticket.channelId,{content:"Staff assistance requested by <@" + user.id + "> " + roles.map(role=>"<@&"+role+">").join(" "),allowed_mentions:{users:[user.id],roles}});
+    return workflowReply("The relevant staff team has been pinged. The next ping is available after the cooldown.");
+  }
+  return workflowReply("Unknown ticket action.");
+}
+async function postFastpassPanel(env) {
+  return discordChannelMessage(env,CHANNELS.fastpassPanel,{embeds:[{title:"Texas State Roleplay | Fast Pass Application",description:"Use the button below to apply for a Fast Pass.\n\nYou must provide:\n• Your previous role(s) and the communities where you held them.\n• Links to proof of those roles (screenshots or other evidence).\n• A valid invite to the server where you currently hold or held those roles.\n\nApplications are reviewed by authorized staff. Submitting false evidence may result in denial.",color:5793266,footer:{text:"Texas State Roleplay • Fast Pass"}}],components:[{type:1,components:[{type:2,style:1,label:"Apply for Fast Pass",custom_id:"fastpass:open"}]}],allowed_mentions:{parse:[]}});
+}
+function modalValue(interaction,customId) {
+  for (const row of interaction.data?.components || []) for (const component of row.components || []) if (component.custom_id === customId) return String(component.value || "").trim();
+  return "";
+}
+async function fastpassModal(env,interaction) {
+  if (interaction.data?.custom_id !== "fastpass:submit") return workflowReply("Unknown Fast Pass form.");
+  const user = interactionUser(interaction);
+  const previousRoles = modalValue(interaction,"previous_roles"), proofLinks = modalValue(interaction,"proof_links"), invite = modalValue(interaction,"server_invite");
+  const urls = proofLinks.split(/\s+/).filter(Boolean);
+  if (!previousRoles || !proofLinks || !invite) return workflowReply("Please complete all three fields.");
+  if (!urls.length || urls.length > 8 || urls.some(url=>url.length>500 || !/^https:\/\//i.test(url))) return workflowReply("Proof must be supplied as up to eight HTTPS links. Upload images to Discord first and paste their attachment links here.");
+  if (!/^https:\/\/(discord\.gg|discord\.com\/invite)\/[A-Za-z0-9-]+\/?$/i.test(invite)) return workflowReply("Please provide a valid Discord invite URL.");
+  let created;
+  try { created = await workflowData(env,"/workflow/fastpass-create","POST",{ownerId:user.id,username:user.global_name||user.username||"member",previousRoles,proofLinks:urls.join("\n"),invite}); }
+  catch (error) { return workflowReply(error.message); }
+  const record = created.record;
+  let posted;
+  try {
+    posted = await discordChannelMessage(env,CHANNELS.fastpassReview,{embeds:[{title:"FAST PASS APPLICATION • " + record.id,description:"A new Fast Pass application is awaiting review.",color:16763904,fields:[
+      {name:"Applicant",value:"<@" + user.id + "> (" + (user.global_name || user.username || "Unknown") + ")"},
+      {name:"Previous roles",value:previousRoles.slice(0,1024)},
+      {name:"Proof links",value:urls.join("\n").slice(0,1024)},
+      {name:"Server invite",value:invite},
+      {name:"Application ID",value:record.id}
+    ],footer:{text:"Only Admin, Internal Affairs and Ownership may review this application."}}],components:[{type:1,components:[
+      {type:2,style:3,label:"Approve",custom_id:"fastpass:approve:" + record.id},
+      {type:2,style:4,label:"Deny",custom_id:"fastpass:deny:" + record.id},
+      {type:2,style:2,label:"Need More Evidence",custom_id:"fastpass:evidence:" + record.id}
+    ]}],allowed_mentions:{users:[user.id],parse:[]}});
+    await workflowData(env,"/workflow/fastpass-update","POST",{id:record.id,status:"pending",reviewMessageId:posted.id,reviewChannelId:CHANNELS.fastpassReview,reviewer:""});
+  } catch (error) { return workflowReply("Your application was saved as " + record.id + " but could not be posted for review: " + error.message); }
+  return workflowReply("Your Fast Pass application **" + record.id + "** was submitted to the review team.");
+}
+async function fastpassComponent(env,interaction) {
+  const customId = String(interaction.data?.custom_id || "");
+  if (customId === "fastpass:open") return {type:9,data:{custom_id:"fastpass:submit",title:"Fast Pass Application",components:[
+    {type:1,components:[{type:4,custom_id:"previous_roles",style:2,label:"Previous roles and communities",min_length:3,max_length:1000,required:true,placeholder:"List your previous ranks and server names."}]},
+    {type:1,components:[{type:4,custom_id:"proof_links",style:2,label:"Proof links (HTTPS)",min_length:8,max_length:1000,required:true,placeholder:"Paste screenshot or evidence links separated by spaces."}]},
+    {type:1,components:[{type:4,custom_id:"server_invite",style:1,label:"Previous server invite",min_length:8,max_length:200,required:true,placeholder:"https://discord.gg/..."}]}
+  ]}};
+  const parts = customId.split(":");
+  if (parts.length !== 3 || parts[0] !== "fastpass") return workflowReply("Unknown Fast Pass action.");
+  const action = parts[1], id = parts[2], state = interactionRoleState(interaction), user = interactionUser(interaction);
+  if (!(state.owner || state.admin || state.ia)) return workflowReply("Only Admin, Internal Affairs or Ownership may review Fast Pass applications.");
+  if (interaction.channel_id !== CHANNELS.fastpassReview) return workflowReply("Fast Pass review buttons only work in the configured review channel.");
+  let result;
+  try { result = await workflowData(env,"/workflow/fastpass?id=" + encodeURIComponent(id),"GET"); }
+  catch (error) { return workflowReply(error.message); }
+  const record = result.record;
+  if (record.status === "approved" || record.status === "denied") return workflowReply("This Fast Pass application has already been reviewed.");
+  const states = {approve:"approved",deny:"denied",evidence:"evidence_needed"};
+  const status = states[action];
+  if (!status) return workflowReply("Unknown Fast Pass decision.");
+  const note = status === "approved" ? "Approved" : status === "denied" ? "Denied" : "More evidence requested";
+  await workflowData(env,"/workflow/fastpass-update","POST",{id,status,reviewer:user.global_name||user.username||user.id,reviewNote:note,reviewMessageId:interaction.message?.id||record.reviewMessageId,reviewChannelId:CHANNELS.fastpassReview});
+  const embed = {...(interaction.message?.embeds?.[0] || {}),title:"FAST PASS APPLICATION • " + id + " • " + status.toUpperCase(),description:note + " by " + (user.global_name||user.username||"staff") + ".",color:status==="approved"?5763719:status==="denied"?15548997:16763904};
+  const components = (interaction.message?.components || []).map(row=>({...row,components:(row.components||[]).map(component=>({...component,disabled:true}))}));
+  try { await discordApi(env,"/channels/" + interaction.channel_id + "/messages/" + interaction.message.id,{method:"PATCH",body:JSON.stringify({embeds:[embed],components})}); } catch {}
+  try { await sendModerationLog(env,"**FAST PASS " + status.toUpperCase() + "**\nApplication: " + id + "\nApplicant: " + record.username + "\nReviewed by: " + (user.global_name||user.username||"Unknown")); } catch {}
+  return workflowReply("Fast Pass application " + id + " marked **" + status.replace("_"," ") + "**.");
+}
+async function staffRecordCommand(env,interaction) {
+  const state = interactionRoleState(interaction);
+  if (!(state.owner || state.admin || state.ia)) return workflowReply("Only Admin, Internal Affairs or Ownership can create staff records.");
+  const group = interaction.data?.options?.[0] || {}, type = String(group.name || "").toLowerCase();
+  const opts = Object.fromEntries((group.options || []).map(option=>[option.name,option.value]));
+  const player = String(opts.player || "").trim(), reason = String(opts.reason || "").trim(), evidence = String(opts.evidence || "").trim();
+  const channels = {promotion:CHANNELS.promotions,infraction:CHANNELS.infractions,warning:CHANNELS.warnings,strike:CHANNELS.strikes};
+  if (!channels[type] || !player || !reason) return workflowReply("Select a record type and provide both a staff member and a reason.");
+  if (evidence && !/^https:\/\//i.test(evidence)) return workflowReply("Evidence must be an HTTPS link.");
+  const user = interactionUser(interaction), now = new Date().toISOString(), id = type.toUpperCase() + "-" + crypto.randomUUID().slice(0,8).toUpperCase();
+  const record = {id,type,player,reason,evidence,staff:user.global_name||user.username||"Unknown",staffId:user.id,createdAt:now};
+  try { await workflowData(env,"/workflow/record","POST",record); }
+  catch (error) { return workflowReply("The record could not be saved: " + error.message); }
+  const fields = [{name:"Staff member",value:player.slice(0,1024)},{name:"Details",value:reason.slice(0,1024)},{name:"Issued by",value:"<@" + user.id + ">"},{name:"Record ID",value:id}];
+  if (evidence) fields.push({name:"Evidence",value:evidence.slice(0,1024)});
+  try { await discordChannelMessage(env,channels[type],{embeds:[{title:"STAFF " + type.toUpperCase(),color:type==="promotion"?5763719:type==="warning"?16763904:15548997,fields,timestamp:now,footer:{text:"Texas State Roleplay • Staff Records"}}],allowed_mentions:{users:[user.id],parse:[]}}); }
+  catch (error) { return workflowReply("Record was saved to the data store, but the Discord channel post failed: " + error.message); }
+  return workflowReply(type.charAt(0).toUpperCase()+type.slice(1)+" record " + id + " was saved.");
+}
+async function archiveInGameLogs(env,sessionId) {
+  const data = await erlcServerData(env,["CommandLogs","ModCalls","JoinLogs","KillLogs"]);
+  const commandLogs = Array.isArray(data.CommandLogs) ? data.CommandLogs : [];
+  const modCalls = Array.isArray(data.ModCalls) ? data.ModCalls : [];
+  const joinLogs = Array.isArray(data.JoinLogs) ? data.JoinLogs : [];
+  const killLogs = Array.isArray(data.KillLogs) ? data.KillLogs : [];
+  const archive = {community:"Texas State Roleplay",capturedAt:new Date().toISOString(),sessionId:sessionId||"unspecified",server:data.Name||"Texas State Roleplay",commandLogs,modCalls,joinLogs,killLogs};
+  const serialized = JSON.stringify(archive,null,2);
+  if (serialized.length > 7500000) throw new Error("The in-game log export is too large for one Discord file. Reduce the log range before shutdown and retry.");
+  const counts = {commandLogs:commandLogs.length,modCalls:modCalls.length,joinLogs:joinLogs.length,killLogs:killLogs.length};
+  const message = await discordFileMessage(env,CHANNELS.logArchive,{embeds:[{title:"ER:LC SESSION LOG ARCHIVE",description:"In-game logs captured before server shutdown.",color:5793266,fields:[
+    {name:"Session",value:String(sessionId||"Unspecified")},
+    {name:"Command logs",value:String(counts.commandLogs),inline:true},
+    {name:"Moderator calls",value:String(counts.modCalls),inline:true},
+    {name:"Join/leave logs",value:String(counts.joinLogs),inline:true},
+    {name:"Kill logs",value:String(counts.killLogs),inline:true}
+  ],timestamp:archive.capturedAt,footer:{text:"Texas State Roleplay • Database Storage"}}],allowed_mentions:{parse:[]}},"erlc-session-" + slug(sessionId||"session") + "-logs.json",serialized,"application/json");
+  try { await workflowData(env,"/workflow/archive","POST",{id:"archive-" + sessionId + "-" + Date.now(),createdAt:archive.capturedAt,sessionId,channelId:CHANNELS.logArchive,commandLogCount:counts.commandLogs,modCallCount:counts.modCalls,joinLogCount:counts.joinLogs,killLogCount:counts.killLogs,discordMessageId:message.id,status:"archived"}); } catch (error) { console.error("In-game archive metadata could not be saved:",error.message); }
+  return {counts,messageId:message.id};
+}
+async function serverSessionCommand(env,interaction) {
+  const state = interactionRoleState(interaction);
+  if (!(state.owner || state.admin || state.ia)) return workflowReply("Only Admin, Internal Affairs or Ownership can post server session updates.");
+  if (!CHANNELS.sessions) return workflowReply("The session announcement channel has not been configured yet. Send Ownership the channel ID for session embeds.");
+  const action = interaction.data?.options?.[0]?.name || "";
+  if (action === "invite") return workflowReply("Join Texas State Roleplay: " + INVITE);
+  const labels = {"start-up":"SESSION STARTED","shutdown":"SESSION SHUTDOWN","low-on-players":"SESSION LOW ON PLAYERS"};
+  if (!labels[action]) return workflowReply("Choose start-up, shutdown or low-on-players.");
+  const user = interactionUser(interaction), now = new Date().toISOString(), sessionId = new Date().toISOString().replace(/[:.]/g,"-");
+  let archive = null, archiveError = "";
+  if (action === "shutdown") {
+    try { archive = await archiveInGameLogs(env,sessionId); }
+    catch (error) { archiveError = String(error.message || error).slice(0,500); }
+  }
+  const description = action === "start-up" ? "A new Texas State Roleplay ER:LC session is now starting. Join the server and follow all session instructions."
+    : action === "shutdown" ? "The Texas State Roleplay ER:LC session is shutting down." + (archive ? "\n\n**In-game logs archived:** " + (archive.counts.commandLogs+archive.counts.modCalls+archive.counts.joinLogs+archive.counts.killLogs) + " records saved to <#" + CHANNELS.logArchive + ">." : "\n\n**Log archive warning:** " + (archiveError || "No log archive was created.") )
+    : "The server is currently low on players. More community members are needed to keep the session active.";
+  const color = action === "start-up" ? 5763719 : action === "shutdown" ? 15548997 : 16763904;
+  try {
+    await discordChannelMessage(env,CHANNELS.sessions,{embeds:[{title:labels[action],description, color,fields:[{name:"Session host",value:"<@" + user.id + ">"},{name:"Time",value:now}],timestamp:now,footer:{text:"Texas State Roleplay • Server Sessions"}}],allowed_mentions:{users:[user.id],parse:[]}});
+  } catch (error) { return workflowReply("The session archive was processed, but the session embed could not be posted: " + error.message); }
+  return workflowReply("Posted **" + labels[action] + "** to the session channel." + (action === "shutdown" && archiveError ? " Log archive error: " + archiveError : ""));
+}
+async function workflowCommand(env,interaction,name) {
+  if (name === "server") return serverSessionCommand(env,interaction);
+  if (name === "ticket-panel") {
+    const state = interactionRoleState(interaction);
+    if (!(state.owner || state.admin || state.ia)) return workflowReply("Only Admin, Internal Affairs or Ownership can post the ticket panel.");
+    try { const message = await postTicketPanel(env); return workflowReply("Ticket panel posted in <#" + CHANNELS.ticketPanel + "> (message " + message.id + ")."); }
+    catch (error) { return workflowReply("Could not post the ticket panel: " + error.message); }
+  }
+  if (name === "close-ticket") return closeTicket(env,interaction,"");
+  if (name === "fastpass-panel") {
+    const state = interactionRoleState(interaction);
+    if (!(state.owner || state.admin || state.ia)) return workflowReply("Only Admin, Internal Affairs or Ownership can post the Fast Pass panel.");
+    try { const message = await postFastpassPanel(env); return workflowReply("Fast Pass application panel posted in <#" + CHANNELS.fastpassPanel + "> (message " + message.id + ")."); }
+    catch (error) { return workflowReply("Could not post the Fast Pass panel: " + error.message); }
+  }
+  if (name === "staff-record") return staffRecordCommand(env,interaction);
+  return null;
+}
+async function workflowComponent(env,interaction) {
+  const customId = String(interaction.data?.custom_id || "");
+  if (customId.startsWith("ticket:")) return ticketComponent(env,interaction);
+  if (customId.startsWith("fastpass:")) return fastpassComponent(env,interaction);
+  return workflowReply("Unknown button action.");
 }
 
 function commandResponse(name) {
@@ -403,8 +762,9 @@ export default {
       }
       return json({ type: 1 });
     }
-    if (interaction.type === 2) { const name = interaction.data?.name || ""; if (name === "ban-bolo") return json(await banBoloInteraction(env,interaction)); if (["kick","ban","unban","erlc-command","modlogs"].includes(name)) return json(await moderationRun(env,interaction,name)); return json(["erlc","players","staff","queue","calls","vehicles"].includes(name) ? await erlcInteraction(name, env) : commandResponse(name)); }
-    if (interaction.type === 3) return json(await banBoloReviewInteraction(env,interaction));
+    if (interaction.type === 2) { const name = interaction.data?.name || ""; if (name === "ban-bolo") return json(await banBoloInteraction(env,interaction)); if (["kick","ban","unban","erlc-command","modlogs"].includes(name)) return json(await moderationRun(env,interaction,name)); if (["server","ticket-panel","close-ticket","fastpass-panel","staff-record"].includes(name)) return json(await workflowCommand(env,interaction,name)); return json(["erlc","players","staff","queue","calls","vehicles"].includes(name) ? await erlcInteraction(name, env) : commandResponse(name)); }
+    if (interaction.type === 3) { const customId=String(interaction.data?.custom_id||""); if(customId.startsWith("bolo:")) return json(await banBoloReviewInteraction(env,interaction)); return json(await workflowComponent(env,interaction)); }
+    if (interaction.type === 5) return json(await fastpassModal(env,interaction));
     return json({ type: 4, data: { content: "This interaction type is not supported." } });
   }
 };
@@ -627,7 +987,8 @@ export class ManchesterGateway extends DurableObject {
       const interaction = packet.d || {};
       if ((interaction.type === 2 || interaction.type === 3) && interaction.id && interaction.token) {
         const name = interaction.data?.name || "";
-        const response = interaction.type === 3 ? await banBoloReviewInteraction(this.env, interaction) : name === "ban-bolo" ? await banBoloInteraction(this.env, interaction) : ["kick","ban","unban","erlc-command","modlogs"].includes(name) ? await moderationRun(this.env, interaction, name) : ["erlc","players","staff","queue","calls","vehicles"].includes(name) ? await erlcInteraction(name, this.env) : commandResponse(name);
+        const customId = String(interaction.data?.custom_id || "");
+        const response = interaction.type === 5 ? await fastpassModal(this.env,interaction) : interaction.type === 3 ? (customId.startsWith("bolo:") ? await banBoloReviewInteraction(this.env,interaction) : await workflowComponent(this.env,interaction)) : name === "ban-bolo" ? await banBoloInteraction(this.env, interaction) : ["kick","ban","unban","erlc-command","modlogs"].includes(name) ? await moderationRun(this.env, interaction, name) : ["server","ticket-panel","close-ticket","fastpass-panel","staff-record"].includes(name) ? await workflowCommand(this.env,interaction,name) : ["erlc","players","staff","queue","calls","vehicles"].includes(name) ? await erlcInteraction(name, this.env) : commandResponse(name);
         const callback = await fetch("https://discord.com/api/v10/interactions/" + encodeURIComponent(interaction.id) + "/" + encodeURIComponent(interaction.token) + "/callback", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(response)});
         if (callback.ok) await this.state("online", {detail:"Discord Gateway READY; handled "+(interaction.type===3?"Ban BOLO review":"/"+name),last_command:name||"ban-bolo-review"});
         else {const detail=await callback.text();await this.state("online",{detail:"Interaction callback failed ("+callback.status+"): "+detail.slice(0,180),last_command:name});}
