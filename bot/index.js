@@ -617,7 +617,7 @@ async function serverSessionCommand(env,interaction) {
     catch (error) { archiveError = String(error.message || error).slice(0,500); }
   }
   const description = action === "start-up" ? "A new Texas State Roleplay ER:LC session is now starting. Join the server and follow all session instructions."
-    : action === "shutdown" ? "The Texas State Roleplay ER:LC session is shutting down." + (archive ? "\n\n**In-game logs archived:** " + (archive.counts.commandLogs+archive.counts.modCalls+archive.counts.joinLogs+archive.counts.killLogs) + " records saved to <#" + CHANNELS.logArchive + ">." : "\n\n**Log archive warning:** " + (archiveError || "No log archive was created.") )
+    : action === "shutdown" ? "The Texas State Roleplay ER:LC session is shutting down." + (archive ? "\n\n**ER:LC log records archived:** " + (archive.counts.commandLogs+archive.counts.modCalls+archive.counts.joinLogs+archive.counts.killLogs) + "\n**Website moderation records archived:** " + archive.counts.websiteModerationLogs + "\n**Turso website records removed:** " + archive.websiteLogsDeleted + "\nSaved to <#" + CHANNELS.logArchive + ">." + (archive.cleanupError ? "\n\n**Cleanup warning:** " + archive.cleanupError + " (the records were retained in Turso)." : "") : "\n\n**Log archive warning:** " + (archiveError || "No log archive was created.") )
     : "The server is currently low on players. More community members are needed to keep the session active.";
   const color = action === "start-up" ? 5763719 : action === "shutdown" ? 15548997 : 16763904;
   try {
