@@ -213,6 +213,29 @@ async function banBoloReviewInteraction(env, interaction) {
 }
 
 
+
+function deferWorkflowResponse(env,interaction,waitUntil,task) {
+  const job = Promise.resolve().then(task).then(async result => {
+    const payload = result?.data || {};
+    const body = {};
+    if (payload.content !== undefined) body.content = payload.content;
+    if (payload.embeds !== undefined) body.embeds = payload.embeds;
+    if (payload.components !== undefined) body.components = payload.components;
+    body.allowed_mentions = payload.allowed_mentions || {parse:[]};
+    const url = "https://discord.com/api/v10/webhooks/" + APP_ID + "/" + encodeURIComponent(interaction.token) + "/messages/@original";
+    const response = await fetch(url,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify(body)});
+    if (!response.ok) console.error("Deferred Discord interaction update failed:",response.status,(await response.text()).slice(0,250));
+  }).catch(async error => {
+    const url = "https://discord.com/api/v10/webhooks/" + APP_ID + "/" + encodeURIComponent(interaction.token) + "/messages/@original";
+    try {
+      await fetch(url,{method:"PATCH",headers:{"content-type":"application/json"},body:JSON.stringify({content:"The workflow failed: " + String(error.message||error).slice(0,1200),allowed_mentions:{parse:[]}})});
+    } catch {}
+    console.error("Deferred Discord workflow failed:",String(error.message||error));
+  });
+  waitUntil(job);
+  return {type:5,data:{flags:64}};
+}
+
 function interactionRoleState(interaction) {
   const roles = interaction.member?.roles || [];
   const perms = BigInt(interaction.member?.permissions || "0");
@@ -762,9 +785,9 @@ export default {
       }
       return json({ type: 1 });
     }
-    if (interaction.type === 2) { const name = interaction.data?.name || ""; if (name === "ban-bolo") return json(await banBoloInteraction(env,interaction)); if (["kick","ban","unban","erlc-command","modlogs"].includes(name)) return json(await moderationRun(env,interaction,name)); if (["server","ticket-panel","close-ticket","fastpass-panel","staff-record"].includes(name)) return json(await workflowCommand(env,interaction,name)); return json(["erlc","players","staff","queue","calls","vehicles"].includes(name) ? await erlcInteraction(name, env) : commandResponse(name)); }
-    if (interaction.type === 3) { const customId=String(interaction.data?.custom_id||""); if(customId.startsWith("bolo:")) return json(await banBoloReviewInteraction(env,interaction)); return json(await workflowComponent(env,interaction)); }
-    if (interaction.type === 5) return json(await fastpassModal(env,interaction));
+    if (interaction.type === 2) { const name = interaction.data?.name || ""; if (name === "ban-bolo") return json(await banBoloInteraction(env,interaction)); if (["kick","ban","unban","erlc-command","modlogs"].includes(name)) return json(await moderationRun(env,interaction,name)); if (["server","ticket-panel","close-ticket","fastpass-panel","staff-record"].includes(name)) { const invite=name==="server"&&interaction.data?.options?.[0]?.name==="invite"; const task=()=>workflowCommand(env,interaction,name); return invite?json(await task()):json(deferWorkflowResponse(env,interaction,p=>ctx.waitUntil(p),task)); } return json(["erlc","players","staff","queue","calls","vehicles"].includes(name) ? await erlcInteraction(name, env) : commandResponse(name)); }
+    if (interaction.type === 3) { const customId=String(interaction.data?.custom_id||""); if(customId.startsWith("bolo:")) return json(await banBoloReviewInteraction(env,interaction)); if(customId==="fastpass:open") return json(await fastpassComponent(env,interaction)); return json(deferWorkflowResponse(env,interaction,p=>ctx.waitUntil(p),()=>workflowComponent(env,interaction))); }
+    if (interaction.type === 5) return json(deferWorkflowResponse(env,interaction,p=>ctx.waitUntil(p),()=>fastpassModal(env,interaction)));
     return json({ type: 4, data: { content: "This interaction type is not supported." } });
   }
 };
@@ -985,12 +1008,16 @@ export class ManchesterGateway extends DurableObject {
       await this.runRecoveryScan("resumed Gateway session");
     } else if (packet.op === 0 && packet.t === "INTERACTION_CREATE") {
       const interaction = packet.d || {};
-      if ((interaction.type === 2 || interaction.type === 3) && interaction.id && interaction.token) {
+      if ((interaction.type === 2 || interaction.type === 3 || interaction.type === 5) && interaction.id && interaction.token) {
         const name = interaction.data?.name || "";
         const customId = String(interaction.data?.custom_id || "");
-        const response = interaction.type === 5 ? await fastpassModal(this.env,interaction) : interaction.type === 3 ? (customId.startsWith("bolo:") ? await banBoloReviewInteraction(this.env,interaction) : await workflowComponent(this.env,interaction)) : name === "ban-bolo" ? await banBoloInteraction(this.env, interaction) : ["kick","ban","unban","erlc-command","modlogs"].includes(name) ? await moderationRun(this.env, interaction, name) : ["server","ticket-panel","close-ticket","fastpass-panel","staff-record"].includes(name) ? await workflowCommand(this.env,interaction,name) : ["erlc","players","staff","queue","calls","vehicles"].includes(name) ? await erlcInteraction(name, this.env) : commandResponse(name);
+        const isWorkflowCommand = interaction.type === 2 && ["server","ticket-panel","close-ticket","fastpass-panel","staff-record"].includes(name) && !(name === "server" && interaction.data?.options?.[0]?.name === "invite");
+        const isWorkflowComponent = interaction.type === 3 && !customId.startsWith("bolo:") && customId !== "fastpass:open";
+        const shouldDefer = interaction.type === 5 || isWorkflowCommand || isWorkflowComponent;
+        const task = () => interaction.type === 5 ? fastpassModal(this.env,interaction) : interaction.type === 3 ? (customId.startsWith("bolo:") ? banBoloReviewInteraction(this.env,interaction) : workflowComponent(this.env,interaction)) : name === "ban-bolo" ? banBoloInteraction(this.env, interaction) : ["kick","ban","unban","erlc-command","modlogs"].includes(name) ? moderationRun(this.env, interaction, name) : ["server","ticket-panel","close-ticket","fastpass-panel","staff-record"].includes(name) ? workflowCommand(this.env,interaction,name) : ["erlc","players","staff","queue","calls","vehicles"].includes(name) ? erlcInteraction(name, this.env) : commandResponse(name);
+        const response = shouldDefer ? deferWorkflowResponse(this.env,interaction,p=>this.ctx.waitUntil(p),task) : await task();
         const callback = await fetch("https://discord.com/api/v10/interactions/" + encodeURIComponent(interaction.id) + "/" + encodeURIComponent(interaction.token) + "/callback", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(response)});
-        if (callback.ok) await this.state("online", {detail:"Discord Gateway READY; handled "+(interaction.type===3?"Ban BOLO review":"/"+name),last_command:name||"ban-bolo-review"});
+        if (callback.ok) await this.state("online", {detail:"Discord Gateway READY; handled "+(interaction.type===3?"component interaction":interaction.type===5?"Fast Pass form":"/"+name),last_command:name||customId||"modal"});
         else {const detail=await callback.text();await this.state("online",{detail:"Interaction callback failed ("+callback.status+"): "+detail.slice(0,180),last_command:name});}
       }
     }
