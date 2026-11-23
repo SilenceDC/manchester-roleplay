@@ -718,8 +718,11 @@ export default {
     }
     if(request.method==="GET"&&url.pathname==="/public/announcements"){return dataRequest(env, "/announcements");}
     if ((request.method === "POST" || request.method === "GET") && url.pathname === "/gateway/start") {
-      try { return json(await startGateway(env)); }
-      catch (e) { return json({ status: "error", error: String(e.message || e).slice(0, 300) }, 502); }
+      try {
+        const registration = await registerCommands(env);
+        const gateway = await startGateway(env);
+        return json({status:gateway.status||"starting",commands:registration.registered||[],gateway});
+      } catch (e) { return json({ status: "error", error: String(e.message || e).slice(0, 300) }, 502); }
     }
     if (request.method === "GET" && url.pathname === "/gateway/status") {
       return gatewayStub(env).fetch("https://gateway-control/status");
