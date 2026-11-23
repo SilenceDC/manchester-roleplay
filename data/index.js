@@ -445,7 +445,7 @@ export default {
       }
       if (url.pathname === "/workflow/archive" && request.method === "POST") {
         const item = await readBody(262144), id = text(item.id || crypto.randomUUID(),100);
-        const archive = {id,createdAt:iso(item.createdAt),sessionId:text(item.sessionId,100),channelId:text(item.channelId,32),commandLogCount:Number(item.commandLogCount||0),modCallCount:Number(item.modCallCount||0),joinLogCount:Number(item.joinLogCount||0),killLogCount:Number(item.killLogCount||0),discordMessageId:text(item.discordMessageId,32),status:text(item.status,32),error:text(item.error,500)};
+        const archive = {id,createdAt:iso(item.createdAt),sessionId:text(item.sessionId,100),channelId:text(item.channelId,32),commandLogCount:Number(item.commandLogCount||0),modCallCount:Number(item.modCallCount||0),joinLogCount:Number(item.joinLogCount||0),killLogCount:Number(item.killLogCount||0),websiteModerationLogCount:Number(item.websiteModerationLogCount||0),websiteModerationLogsDeleted:Number(item.websiteModerationLogsDeleted||0),discordMessageId:text(item.discordMessageId,32),status:text(item.status,32),error:text(item.error||item.cleanupError,500)};
         await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
           .bind("workflow_archive:" + id,JSON.stringify(archive),archive.createdAt).run();
         return reply({ok:true,archive});
