@@ -329,3 +329,21 @@ test("ticket, Fast Pass, session and archive workflow routes are present", () =>
     assert.ok(bot.includes(channel), "missing configured workflow channel: " + channel);
   }
 });
+
+
+test("Fast Pass collects native Discord file uploads and archives the files in the review channel", () => {
+  assert.ok(bot.includes('type:19,custom_id:"proof_files"'));
+  assert.ok(bot.includes("interaction.data?.resolved?.attachments"));
+  assert.ok(bot.includes("discordUploadAttachments(env,CHANNELS.fastpassReview"));
+  assert.ok(data.includes("proofFiles = Array.isArray(item.proofFiles)"));
+  assert.ok(bot.includes('file_types:["image","video",".pdf"]'));
+});
+
+test("server shutdown captures all available ER:LC v2 log sections before posting the shutdown notice", () => {
+  const archive = bot.indexOf("async function archiveInGameLogs");
+  const shutdown = bot.indexOf('if (action === "shutdown")', archive);
+  const post = bot.indexOf('discordChannelMessage(env,CHANNELS.sessions', shutdown);
+  assert.ok(archive >= 0 && shutdown > archive && post > shutdown);
+  for (const name of ["CommandLogs","ModCalls","JoinLogs","KillLogs"]) assert.ok(bot.includes('"' + name + '"'));
+  assert.ok(bot.includes('CHANNELS.logArchive'));
+});
