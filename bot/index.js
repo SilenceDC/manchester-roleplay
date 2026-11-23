@@ -96,7 +96,7 @@ const AUTOMOD_PROFANITY = ["fuck","shit","bitch","ass","asshole","arse","arsehol
 // Compile once at module load instead of allocating dozens of RegExp objects for every message.
 const AUTOMOD_PATTERNS = AUTOMOD_PROFANITY.map(term => new RegExp("(^|[^a-z])"+term.split("").join("[^a-z]*")+"($|[^a-z])","i"));
 function automodViolation(content,allowLinks=false){const normalized=String(content||"").toLowerCase().normalize("NFKD").replace(/[\u200B-\u200D\uFEFF]/g,"").replace(/[0]/g,"o").replace(/[1!|]/g,"i").replace(/[3]/g,"e").replace(/[4@]/g,"a").replace(/[5$]/g,"s").replace(/[7]/g,"t");for(const pattern of AUTOMOD_PATTERNS){if(pattern.test(normalized))return "profanity";}if(allowLinks)return "";const links=String(content||"").match(/(?:https?:\/\/|www\.)[^\s<>()]+|(?:^|\s)[a-z0-9-]+(?:\.[a-z0-9-]+)*\.(?:com|net|org|gg|co|uk|io|dev|app|me|xyz|info|biz|gov|edu|tv|ly|to|link|site|cloud|store)(?:\/[^\s<>()]*)?/gi)||[];for(const link of links){const raw=link.trim();let u;try{u=new URL(/^https?:\/\//i.test(raw)?raw:"https://"+raw);}catch{return "unapproved_link";}const host=u.hostname.toLowerCase(),path=u.pathname.toLowerCase(),gif=path.endsWith(".gif")||path.endsWith(".gifv")||host==="tenor.com"||host.endsWith(".tenor.com")||host==="giphy.com"||host.endsWith(".giphy.com");if(gif)continue;return "unapproved_link";}return "";}
-async function discordChannelMessage(env,channelId,payload){const token=tokenFrom(env);if(!token)throw Error("Discord bot token missing");const r=await fetch("https://discord.com/api/v10/channels/"+encodeURIComponent(channelId)+"/messages",{method:"POST",headers:{Authorization:"Bot "+token,"Content-Type":"application/json"},body:JSON.stringify(payload)});if(!r.ok)throw Error("Discord channel post failed (HTTP "+r.status+")");return r.json();}
+async function discordChannelMessage(env,channelId,payload){const token=tokenFrom(env);if(!token)throw Error("Discord bot token missing");const r=await fetch("https://discord.com/api/v10/channels/"+encodeURIComponent(channelId)+"/messages",{method:"POST",headers:{Authorization:"Bot "+token,"Content-Type":"application/json"},body:JSON.stringify(payload)});const raw=await r.text();let data=null;try{data=raw?JSON.parse(raw):null;}catch{data={message:raw.slice(0,300)};}if(!r.ok)throw Error("Discord channel post failed (HTTP "+r.status+"): "+String(data?.message||data?.error||raw||"Request failed").slice(0,300));return data;}
 async function sendModerationLog(env,text){try{await discordChannelMessage(env,CHANNELS.moderation,{content:String(text).slice(0,1900),allowed_mentions:{parse:[]}});}catch(e){console.error("Moderation log delivery failed",e.message);}}
 function erlcList(value,limit=14){
  if(Array.isArray(value)) return value.slice(0,limit).map(x=>typeof x==="string"||typeof x==="number"?String(x):[x?.Username,x?.Name,x?.Player,x?.User,x?.Vehicle,x?.Team].filter(Boolean).join(" · ")||JSON.stringify(x));
@@ -342,6 +342,7 @@ async function createTicket(env,interaction,category) {
   const overwrites = [
     {id:GUILD_ID,type:0,allow:"0",deny:"1024"},
     {id:user.id,type:1,allow:viewSend,deny:"0"},
+    {id:APP_ID,type:1,allow:viewSend,deny:"0"},
     ...supportRoles.map(id=>({id,type:0,allow:viewSend,deny:"0"}))
   ];
   let channel;
