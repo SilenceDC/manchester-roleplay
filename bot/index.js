@@ -570,23 +570,37 @@ async function staffRecordCommand(env,interaction) {
 }
 async function archiveInGameLogs(env,sessionId) {
   const data = await erlcServerData(env,["CommandLogs","ModCalls","JoinLogs","KillLogs"]);
+  const storedLogs = await workflowData(env,"/workflow/modlogs-export","GET");
   const commandLogs = Array.isArray(data.CommandLogs) ? data.CommandLogs : [];
   const modCalls = Array.isArray(data.ModCalls) ? data.ModCalls : [];
   const joinLogs = Array.isArray(data.JoinLogs) ? data.JoinLogs : [];
   const killLogs = Array.isArray(data.KillLogs) ? data.KillLogs : [];
-  const archive = {community:"Texas State Roleplay",capturedAt:new Date().toISOString(),sessionId:sessionId||"unspecified",server:data.Name||"Texas State Roleplay",commandLogs,modCalls,joinLogs,killLogs};
+  const websiteModerationLogs = Array.isArray(storedLogs.logs) ? storedLogs.logs : [];
+  const websiteLogIds = Array.isArray(storedLogs.ids) ? storedLogs.ids : [];
+  const archive = {community:"Texas State Roleplay",capturedAt:new Date().toISOString(),sessionId:sessionId||"unspecified",server:data.Name||"Texas State Roleplay",commandLogs,modCalls,joinLogs,killLogs,websiteModerationLogs};
   const serialized = JSON.stringify(archive,null,2);
-  if (serialized.length > 7500000) throw new Error("The in-game log export is too large for one Discord file. Reduce the log range before shutdown and retry.");
-  const counts = {commandLogs:commandLogs.length,modCalls:modCalls.length,joinLogs:joinLogs.length,killLogs:killLogs.length};
-  const message = await discordFileMessage(env,CHANNELS.logArchive,{embeds:[{title:"ER:LC SESSION LOG ARCHIVE",description:"In-game logs captured before server shutdown.",color:5793266,fields:[
+  if (serialized.length > 7500000) throw new Error("The combined ER:LC and website moderation-log archive is too large for one Discord file. Reduce the log range before shutdown and retry.");
+  const counts = {commandLogs:commandLogs.length,modCalls:modCalls.length,joinLogs:joinLogs.length,killLogs:killLogs.length,websiteModerationLogs:websiteModerationLogs.length};
+  const message = await discordFileMessage(env,CHANNELS.logArchive,{embeds:[{title:"ER:LC SESSION LOG ARCHIVE",description:"ER:LC logs and website moderation records captured before session shutdown.",color:5793266,fields:[
     {name:"Session",value:String(sessionId||"Unspecified")},
     {name:"Command logs",value:String(counts.commandLogs),inline:true},
     {name:"Moderator calls",value:String(counts.modCalls),inline:true},
     {name:"Join/leave logs",value:String(counts.joinLogs),inline:true},
-    {name:"Kill logs",value:String(counts.killLogs),inline:true}
+    {name:"Kill logs",value:String(counts.killLogs),inline:true},
+    {name:"Website moderation records",value:String(counts.websiteModerationLogs),inline:true}
   ],timestamp:archive.capturedAt,footer:{text:"Texas State Roleplay • Database Storage"}}],allowed_mentions:{parse:[]}},"erlc-session-" + slug(sessionId||"session") + "-logs.json",serialized,"application/json");
-  try { await workflowData(env,"/workflow/archive","POST",{id:"archive-" + sessionId + "-" + Date.now(),createdAt:archive.capturedAt,sessionId,channelId:CHANNELS.logArchive,commandLogCount:counts.commandLogs,modCallCount:counts.modCalls,joinLogCount:counts.joinLogs,killLogCount:counts.killLogs,discordMessageId:message.id,status:"archived"}); } catch (error) { console.error("In-game archive metadata could not be saved:",error.message); }
-  return {counts,messageId:message.id};
+  let websiteLogsDeleted = 0, cleanupError = "";
+  if (websiteLogIds.length) {
+    try {
+      const cleared = await workflowData(env,"/workflow/modlogs-clear","POST",{ids:websiteLogIds});
+      websiteLogsDeleted = Number(cleared.deleted || 0);
+    } catch (error) {
+      cleanupError = String(error.message || error).slice(0,300);
+      console.error("Discord archive was saved, but website moderation-log cleanup failed:",cleanupError);
+    }
+  }
+  try { await workflowData(env,"/workflow/archive","POST",{id:"archive-" + sessionId + "-" + Date.now(),createdAt:archive.capturedAt,sessionId,channelId:CHANNELS.logArchive,commandLogCount:counts.commandLogs,modCallCount:counts.modCalls,joinLogCount:counts.joinLogs,killLogCount:counts.killLogs,websiteModerationLogCount:counts.websiteModerationLogs,websiteModerationLogsDeleted:websiteLogsDeleted,discordMessageId:message.id,status:cleanupError?"archived_cleanup_failed":"archived"}); } catch (error) { console.error("In-game archive metadata could not be saved:",error.message); }
+  return {counts,websiteLogsDeleted,cleanupError,messageId:message.id};
 }
 async function serverSessionCommand(env,interaction) {
   const state = interactionRoleState(interaction);
