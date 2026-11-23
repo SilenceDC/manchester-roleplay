@@ -535,7 +535,7 @@ async function fastpassModal(env,interaction) {
     const imageEmbeds = validAttachments
       .filter(file => /^image\//i.test(file.content_type || "") || /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(file.filename || ""))
       .map((file,index) => {
-        const safeName = String(file.filename || ("proof-" + (index+1))).replace(/[\\r\\n"\\\\]/g,"_").slice(0,100);
+        const safeName = String(file.filename || ("proof-" + (index+1))).replace(/[\r\n"\\]/g,"_").slice(0,100);
         return {image:{url:"attachment://" + safeName},description:"Proof image " + (index+1) + " • " + safeName};
       });
     const payload = {embeds:[{title:"FAST PASS APPLICATION • " + record.id,description:"A new Fast Pass application is awaiting review. Proof photos are displayed directly below for easy viewing on desktop and mobile.",color:16763904,fields:[
