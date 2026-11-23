@@ -398,7 +398,8 @@ export default {
           const number = Number(sequence?.value);
           if (!Number.isSafeInteger(number) || number < 1) throw new Error("Could not allocate a Fast Pass number.");
           const id = "FP-" + String(number).padStart(4,"0");
-          const record = {id,number,ownerId,username,previousRoles,proofLinks,invite,status:"pending",createdAt:now,reviewedAt:"",reviewer:"",reviewMessageId:"",reviewChannelId:""};
+          const proofFiles = Array.isArray(item.proofFiles) ? item.proofFiles.slice(0,5).map(file=>({filename:text(file.filename,100),url:text(file.url,1000),size:Number(file.size||0),content_type:text(file.content_type,100)})) : [];
+          const record = {id,number,ownerId,username,previousRoles,proofLinks,proofFiles,invite,status:"pending",createdAt:now,reviewedAt:"",reviewer:"",reviewMessageId:"",reviewChannelId:""};
           await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
             .bind("workflow_fastpass:" + id,JSON.stringify(record),now).run();
           await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
