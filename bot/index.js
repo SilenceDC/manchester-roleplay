@@ -271,6 +271,24 @@ async function discordFileMessage(env, channelId, payload, filename, content, co
   form.append("files[0]",new Blob([content],{type:contentType}),filename);
   return discordApi(env,"/channels/" + encodeURIComponent(channelId) + "/messages",{method:"POST",body:form});
 }
+
+async function discordUploadAttachments(env,channelId,payload,attachments) {
+  const form = new FormData();
+  form.append("payload_json",JSON.stringify(payload));
+  let totalBytes = 0;
+  for (let index=0; index<attachments.length; index++) {
+    const attachment = attachments[index];
+    const response = await fetch(attachment.url);
+    if (!response.ok) throw new Error("Could not retrieve uploaded proof file " + attachment.filename + " (HTTP " + response.status + ").");
+    const bytes = await response.arrayBuffer();
+    totalBytes += bytes.byteLength;
+    if (totalBytes > 8 * 1024 * 1024) throw new Error("Uploaded proof files exceed the 8 MB review-message limit.");
+    const filename = String(attachment.filename || ("proof-" + (index+1))).replace(/[\\r\\n"\\\\]/g,"_").slice(0,100);
+    form.append("files[" + index + "]",new Blob([bytes],{type:attachment.content_type || "application/octet-stream"}),filename);
+  }
+  return discordApi(env,"/channels/" + encodeURIComponent(channelId) + "/messages",{method:"POST",body:form});
+}
+
 async function workflowData(env,path,method="GET",body) {
   const init = {method,headers:{"content-type":"application/json"}};
   if (body !== undefined) init.body = JSON.stringify(body);
@@ -438,44 +456,77 @@ async function postFastpassPanel(env) {
   return discordChannelMessage(env,CHANNELS.fastpassPanel,{embeds:[{title:"Texas State Roleplay | Fast Pass Application",description:"Use the button below to apply for a Fast Pass.\n\nYou must provide:\n• Your previous role(s) and the communities where you held them.\n• Links to proof of those roles (screenshots or other evidence).\n• A valid invite to the server where you currently hold or held those roles.\n\nApplications are reviewed by authorized staff. Submitting false evidence may result in denial.",color:5793266,footer:{text:"Texas State Roleplay • Fast Pass"}}],components:[{type:1,components:[{type:2,style:1,label:"Apply for Fast Pass",custom_id:"fastpass:open"}]}],allowed_mentions:{parse:[]}});
 }
 function modalValue(interaction,customId) {
-  for (const row of interaction.data?.components || []) for (const component of row.components || []) if (component.custom_id === customId) return String(component.value || "").trim();
-  return "";
+  const visit = components => {
+    for (const component of components || []) {
+      if (component.custom_id === customId && component.value !== undefined) return String(component.value || "").trim();
+      if (component.component) {
+        const value = visit([component.component]);
+        if (value) return value;
+      }
+      const value = visit(component.components);
+      if (value) return value;
+    }
+    return "";
+  };
+  return visit(interaction.data?.components || []);
+}
+function modalFileValues(interaction,customId) {
+  const visit = components => {
+    for (const component of components || []) {
+      if (component.custom_id === customId && Array.isArray(component.values)) return component.values;
+      if (component.component) {
+        const value = visit([component.component]);
+        if (value.length) return value;
+      }
+      const value = visit(component.components);
+      if (value.length) return value;
+    }
+    return [];
+  };
+  return visit(interaction.data?.components || []);
 }
 async function fastpassModal(env,interaction) {
   if (interaction.data?.custom_id !== "fastpass:submit") return workflowReply("Unknown Fast Pass form.");
   const user = interactionUser(interaction);
-  const previousRoles = modalValue(interaction,"previous_roles"), proofLinks = modalValue(interaction,"proof_links"), invite = modalValue(interaction,"server_invite");
-  const urls = proofLinks.split(/\s+/).filter(Boolean);
-  if (!previousRoles || !proofLinks || !invite) return workflowReply("Please complete all three fields.");
-  if (!urls.length || urls.length > 8 || urls.some(url=>url.length>500 || !/^https:\/\//i.test(url))) return workflowReply("Proof must be supplied as up to eight HTTPS links. Upload images to Discord first and paste their attachment links here.");
+  const previousRoles = modalValue(interaction,"previous_roles"), invite = modalValue(interaction,"server_invite");
+  const uploadedIds = modalFileValues(interaction,"proof_files");
+  const resolved = interaction.data?.resolved?.attachments || {};
+  const attachments = uploadedIds.map(id=>resolved[id]).filter(Boolean);
+  if (!previousRoles || !invite || !uploadedIds.length || attachments.length !== uploadedIds.length) return workflowReply("Please complete your previous roles, upload at least one proof file, and provide the server invite.");
+  if (attachments.length > 5) return workflowReply("You may upload a maximum of five proof files.");
+  const validAttachments = attachments.filter(file => /^https:\/\//i.test(file.url||"") && (Number(file.size||0) <= 8*1024*1024) && /\.(png|jpe?g|webp|gif|mp4|mov|pdf)$/i.test(file.filename||""));
+  if (validAttachments.length !== attachments.length) return workflowReply("Proof files must be PNG, JPG, WEBP, GIF, MP4, MOV or PDF, and each file must be no larger than 8 MB.");
+  const urls = validAttachments.map(file=>file.url);
   if (!/^https:\/\/(discord\.gg|discord\.com\/invite)\/[A-Za-z0-9-]+\/?$/i.test(invite)) return workflowReply("Please provide a valid Discord invite URL.");
   let created;
-  try { created = await workflowData(env,"/workflow/fastpass-create","POST",{ownerId:user.id,username:user.global_name||user.username||"member",previousRoles,proofLinks:urls.join("\n"),invite}); }
+  try { created = await workflowData(env,"/workflow/fastpass-create","POST",{ownerId:user.id,username:user.global_name||user.username||"member",previousRoles,proofLinks:urls.join("\n"),proofFiles:validAttachments.map(file=>({filename:file.filename,url:file.url,size:Number(file.size||0),content_type:file.content_type||""})),invite}); }
   catch (error) { return workflowReply(error.message); }
   const record = created.record;
   let posted;
   try {
-    posted = await discordChannelMessage(env,CHANNELS.fastpassReview,{embeds:[{title:"FAST PASS APPLICATION • " + record.id,description:"A new Fast Pass application is awaiting review.",color:16763904,fields:[
+    const payload = {embeds:[{title:"FAST PASS APPLICATION • " + record.id,description:"A new Fast Pass application is awaiting review. Uploaded proof is attached to this review message.",color:16763904,fields:[
       {name:"Applicant",value:"<@" + user.id + "> (" + (user.global_name || user.username || "Unknown") + ")"},
       {name:"Previous roles",value:previousRoles.slice(0,1024)},
-      {name:"Proof links",value:urls.join("\n").slice(0,1024)},
+      {name:"Proof files",value:validAttachments.map(file=>file.filename).join("\n").slice(0,1024)},
       {name:"Server invite",value:invite},
       {name:"Application ID",value:record.id}
     ],footer:{text:"Only Admin, Internal Affairs and Ownership may review this application."}}],components:[{type:1,components:[
       {type:2,style:3,label:"Approve",custom_id:"fastpass:approve:" + record.id},
       {type:2,style:4,label:"Deny",custom_id:"fastpass:deny:" + record.id},
       {type:2,style:2,label:"Need More Evidence",custom_id:"fastpass:evidence:" + record.id}
-    ]}],allowed_mentions:{users:[user.id],parse:[]}});
+    ]}],allowed_mentions:{users:[user.id],parse:[]}};
+    posted = await discordUploadAttachments(env,CHANNELS.fastpassReview,payload,validAttachments);
     await workflowData(env,"/workflow/fastpass-update","POST",{id:record.id,status:"pending",reviewMessageId:posted.id,reviewChannelId:CHANNELS.fastpassReview,reviewer:""});
   } catch (error) { return workflowReply("Your application was saved as " + record.id + " but could not be posted for review: " + error.message); }
-  return workflowReply("Your Fast Pass application **" + record.id + "** was submitted to the review team.");
+  return workflowReply("Your Fast Pass application **" + record.id + "** was submitted with " + attachments.length + " proof file(s).");
 }
+
 async function fastpassComponent(env,interaction) {
   const customId = String(interaction.data?.custom_id || "");
   if (customId === "fastpass:open") return {type:9,data:{custom_id:"fastpass:submit",title:"Fast Pass Application",components:[
-    {type:1,components:[{type:4,custom_id:"previous_roles",style:2,label:"Previous roles and communities",min_length:3,max_length:1000,required:true,placeholder:"List your previous ranks and server names."}]},
-    {type:1,components:[{type:4,custom_id:"proof_links",style:2,label:"Proof links (HTTPS)",min_length:8,max_length:1000,required:true,placeholder:"Paste screenshot or evidence links separated by spaces."}]},
-    {type:1,components:[{type:4,custom_id:"server_invite",style:1,label:"Previous server invite",min_length:8,max_length:200,required:true,placeholder:"https://discord.gg/..."}]}
+    {type:18,label:"Previous roles and communities",component:{type:4,custom_id:"previous_roles",style:2,min_length:3,max_length:1000,required:true,placeholder:"List your previous ranks and server names."}},
+    {type:18,label:"Upload proof of previous roles (1–5 files)",description:"Screenshots, videos or PDF proof. Max 8 MB each.",component:{type:19,custom_id:"proof_files",min_values:1,max_values:5,required:true,file_types:["image","video",".pdf"]}},
+    {type:18,label:"Previous server invite",component:{type:4,custom_id:"server_invite",style:1,min_length:8,max_length:200,required:true,placeholder:"https://discord.gg/..."} }
   ]}};
   const parts = customId.split(":");
   if (parts.length !== 3 || parts[0] !== "fastpass") return workflowReply("Unknown Fast Pass action.");
