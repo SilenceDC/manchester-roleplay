@@ -29,7 +29,7 @@ const COMMANDS = [
   { name: "ticket-panel", description: "Post the public ticket creation panel.", type: 1 },
   { name: "close-ticket", description: "Close the ticket channel and save its transcript.", type: 1 },
   { name: "fastpass-panel", description: "Post the Fast Pass application panel.", type: 1 },
-  { name: "fastpass-delete", description: "Delete the stuck FP-0003 Fast Pass request so it can be resubmitted.", type: 1 },
+  { name: "fastpass-delete", description: "Delete a Fast Pass application by its ID.", type: 1, options: [{name:"id",description:"Fast Pass ID, for example FP-0003",type:3,required:true,max_length:16}] },
   { name: "staff-record", description: "Create a staff record in the appropriate channel.", type: 1, options: [
     {type:1,name:"promotion",description:"Record a staff promotion.",options:[{name:"player",description:"Discord or Roblox name",type:3,required:true},{name:"role",description:"The new staff role or rank",type:8,required:true},{name:"reason",description:"Promotion details",type:3,required:true,max_length:1000}]},
     {type:1,name:"infraction",description:"Record a staff infraction.",options:[{name:"player",description:"Staff member",type:3,required:true},{name:"reason",description:"Infraction details",type:3,required:true,max_length:1000},{name:"evidence",description:"Optional evidence URL",type:3,required:false,max_length:500}]},
@@ -670,11 +670,13 @@ async function workflowCommand(env,interaction,name) {
   if (name === "close-ticket") return closeTicket(env,interaction,"");
   if (name === "fastpass-delete") {
     const state = interactionRoleState(interaction);
-    if (!state.owner) return workflowReply("Only Ownership can run this one-time Fast Pass reset.");
+    if (!state.owner) return workflowReply("Only Ownership can delete Fast Pass applications.");
+    const id = String(interaction.data?.options?.find(option => option.name === "id")?.value || "").trim().toUpperCase();
+    if (!/^FP-\\d{4}$/.test(id)) return workflowReply("Enter a valid Fast Pass ID, for example FP-0003.");
     try {
-      const result = await workflowData(env,"/workflow/fastpass-delete-fp0003","POST",{});
-      return workflowReply(result.deleted ? "FP-0003 has been deleted and its matching pending-submission lock cleared. You can submit a new Fast Pass application now." : "FP-0003 was not found; no other Fast Pass records were changed.");
-    } catch (error) { return workflowReply("Could not reset FP-0003: " + error.message); }
+      const result = await workflowData(env,"/workflow/fastpass-delete","POST",{id});
+      return workflowReply(result.deleted ? id + " has been deleted" + (result.clearedPending ? " and its matching pending-submission lock was cleared." : ".") : id + " was not found; no other Fast Pass applications were changed.");
+    } catch (error) { return workflowReply("Could not delete " + id + ": " + error.message); }
   }
   if (name === "fastpass-panel") {
     const state = interactionRoleState(interaction);
