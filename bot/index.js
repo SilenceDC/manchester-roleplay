@@ -298,7 +298,7 @@ async function discordUploadAttachments(env,channelId,payload,attachments) {
     const bytes = await response.arrayBuffer();
     totalBytes += bytes.byteLength;
     if (totalBytes > 8 * 1024 * 1024) throw new Error("Uploaded proof files exceed the 8 MB review-message limit.");
-    const filename = String(attachment.filename || ("proof-" + (index+1))).replace(/[\\r\\n"\\\\]/g,"_").slice(0,100);
+    const filename = String(attachment.filename || ("proof-" + (index+1))).replace(/[\r\n"\\]/g,"_").slice(0,100);
     form.append("files[" + index + "]",new Blob([bytes],{type:attachment.content_type || "application/octet-stream"}),filename);
   }
   return discordApi(env,"/channels/" + encodeURIComponent(channelId) + "/messages",{method:"POST",body:form});
@@ -533,7 +533,7 @@ async function fastpassModal(env,interaction) {
   let posted;
   try {
     const imageEmbeds = validAttachments
-      .filter(file => /^image\\//i.test(file.content_type || "") || /\\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(file.filename || ""))
+      .filter(file => /^image\//i.test(file.content_type || "") || /\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(file.filename || ""))
       .map((file,index) => {
         const safeName = String(file.filename || ("proof-" + (index+1))).replace(/[\\r\\n"\\\\]/g,"_").slice(0,100);
         return {image:{url:"attachment://" + safeName},description:"Proof image " + (index+1) + " • " + safeName};
