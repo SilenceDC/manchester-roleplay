@@ -413,7 +413,7 @@ export default {
       if (url.pathname === "/workflow/fastpass-delete" && request.method === "POST") {
         const item = await readBody(1024);
         const id = text(item.id,16).trim().toUpperCase();
-        if (!/^FP-\\d{4}$/.test(id)) return reply({ok:false,error:"Invalid Fast Pass ID."},400);
+        if (!/^FP-\d{4}$/.test(id)) return reply({ok:false,error:"Invalid Fast Pass ID."},400);
         const key = "workflow_fastpass:" + id;
         const row = await db.prepare("SELECT value FROM app_state WHERE key=?").bind(key).first();
         const record = parse(row?.value,null);
