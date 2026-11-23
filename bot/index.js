@@ -29,7 +29,7 @@ const COMMANDS = [
   { name: "ticket-panel", description: "Post the public ticket creation panel.", type: 1 },
   { name: "close-ticket", description: "Close the ticket channel and save its transcript.", type: 1 },
   { name: "fastpass-panel", description: "Post the Fast Pass application panel.", type: 1 },
-  { name: "fastpass-reset-fp0003", description: "Remove the stuck FP-0003 Fast Pass request so it can be resubmitted.", type: 1 },
+  { name: "fastpass-delete", description: "Delete the stuck FP-0003 Fast Pass request so it can be resubmitted.", type: 1 },
   { name: "staff-record", description: "Create a staff record in the appropriate channel.", type: 1, options: [
     {type:1,name:"promotion",description:"Record a staff promotion.",options:[{name:"player",description:"Discord or Roblox name",type:3,required:true},{name:"role",description:"The new staff role or rank",type:8,required:true},{name:"reason",description:"Promotion details",type:3,required:true,max_length:1000}]},
     {type:1,name:"infraction",description:"Record a staff infraction.",options:[{name:"player",description:"Staff member",type:3,required:true},{name:"reason",description:"Infraction details",type:3,required:true,max_length:1000},{name:"evidence",description:"Optional evidence URL",type:3,required:false,max_length:500}]},
@@ -668,7 +668,7 @@ async function workflowCommand(env,interaction,name) {
     catch (error) { return workflowReply("Could not post the ticket panel: " + error.message); }
   }
   if (name === "close-ticket") return closeTicket(env,interaction,"");
-  if (name === "fastpass-reset-fp0003") {
+  if (name === "fastpass-delete") {
     const state = interactionRoleState(interaction);
     if (!state.owner) return workflowReply("Only Ownership can run this one-time Fast Pass reset.");
     try {
@@ -895,7 +895,7 @@ export default {
       }
       return json({ type: 1 });
     }
-    if (interaction.type === 2) { const name = interaction.data?.name || ""; if (name === "ban-bolo") return json(await banBoloInteraction(env,interaction)); if (["kick","ban","unban","erlc-command","modlogs"].includes(name)) return json(await moderationRun(env,interaction,name)); if (["server","ticket-panel","close-ticket","fastpass-panel","fastpass-reset-fp0003","staff-record"].includes(name)) { const invite=name==="server"&&interaction.data?.options?.[0]?.name==="invite"; const task=()=>workflowCommand(env,interaction,name); return invite?json(await task()):json(deferWorkflowResponse(env,interaction,p=>ctx.waitUntil(p),task)); } return json(["erlc","players","staff","queue","calls","vehicles"].includes(name) ? await erlcInteraction(name, env) : commandResponse(name)); }
+    if (interaction.type === 2) { const name = interaction.data?.name || ""; if (name === "ban-bolo") return json(await banBoloInteraction(env,interaction)); if (["kick","ban","unban","erlc-command","modlogs"].includes(name)) return json(await moderationRun(env,interaction,name)); if (["server","ticket-panel","close-ticket","fastpass-panel","fastpass-delete","staff-record"].includes(name)) { const invite=name==="server"&&interaction.data?.options?.[0]?.name==="invite"; const task=()=>workflowCommand(env,interaction,name); return invite?json(await task()):json(deferWorkflowResponse(env,interaction,p=>ctx.waitUntil(p),task)); } return json(["erlc","players","staff","queue","calls","vehicles"].includes(name) ? await erlcInteraction(name, env) : commandResponse(name)); }
     if (interaction.type === 3) { const customId=String(interaction.data?.custom_id||""); if(customId.startsWith("bolo:")) return json(await banBoloReviewInteraction(env,interaction)); if(customId==="fastpass:open") return json(await fastpassComponent(env,interaction)); return json(deferWorkflowResponse(env,interaction,p=>ctx.waitUntil(p),()=>workflowComponent(env,interaction))); }
     if (interaction.type === 5) return json(deferWorkflowResponse(env,interaction,p=>ctx.waitUntil(p),()=>fastpassModal(env,interaction)));
     return json({ type: 4, data: { content: "This interaction type is not supported." } });
@@ -1124,7 +1124,7 @@ export class ManchesterGateway extends DurableObject {
         const isWorkflowCommand = interaction.type === 2 && ["server","ticket-panel","close-ticket","fastpass-panel","staff-record"].includes(name) && !(name === "server" && interaction.data?.options?.[0]?.name === "invite");
         const isWorkflowComponent = interaction.type === 3 && !customId.startsWith("bolo:") && customId !== "fastpass:open";
         const shouldDefer = interaction.type === 5 || isWorkflowCommand || isWorkflowComponent;
-        const task = () => interaction.type === 5 ? fastpassModal(this.env,interaction) : interaction.type === 3 ? (customId.startsWith("bolo:") ? banBoloReviewInteraction(this.env,interaction) : workflowComponent(this.env,interaction)) : name === "ban-bolo" ? banBoloInteraction(this.env, interaction) : ["kick","ban","unban","erlc-command","modlogs"].includes(name) ? moderationRun(this.env, interaction, name) : ["server","ticket-panel","close-ticket","fastpass-panel","fastpass-reset-fp0003","staff-record"].includes(name) ? workflowCommand(this.env,interaction,name) : ["erlc","players","staff","queue","calls","vehicles"].includes(name) ? erlcInteraction(name, this.env) : commandResponse(name);
+        const task = () => interaction.type === 5 ? fastpassModal(this.env,interaction) : interaction.type === 3 ? (customId.startsWith("bolo:") ? banBoloReviewInteraction(this.env,interaction) : workflowComponent(this.env,interaction)) : name === "ban-bolo" ? banBoloInteraction(this.env, interaction) : ["kick","ban","unban","erlc-command","modlogs"].includes(name) ? moderationRun(this.env, interaction, name) : ["server","ticket-panel","close-ticket","fastpass-panel","fastpass-delete","staff-record"].includes(name) ? workflowCommand(this.env,interaction,name) : ["erlc","players","staff","queue","calls","vehicles"].includes(name) ? erlcInteraction(name, this.env) : commandResponse(name);
         const response = shouldDefer ? deferWorkflowResponse(this.env,interaction,p=>this.ctx.waitUntil(p),task) : await task();
         const callback = await fetch("https://discord.com/api/v10/interactions/" + encodeURIComponent(interaction.id) + "/" + encodeURIComponent(interaction.token) + "/callback", {method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(response)});
         if (callback.ok) await this.state("online", {detail:"Discord Gateway READY; handled "+(interaction.type===3?"component interaction":interaction.type===5?"Fast Pass form":"/"+name),last_command:name||customId||"modal"});
