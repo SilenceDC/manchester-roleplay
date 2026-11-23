@@ -302,6 +302,153 @@ export default {
         return reply({ ok: true, imported, note: "Idempotent import: existing record IDs were not overwritten." });
       }
 
+
+      if (url.pathname === "/workflow/ticket-create" && request.method === "POST") {
+        const item = await readBody(4096), ownerId = text(item.ownerId, 32).trim();
+        const username = text(item.username, 80).trim(), category = text(item.category, 24).toLowerCase();
+        if (!/^\d{17,20}$/.test(ownerId) || !username || !["general","ownership","internal-affairs"].includes(category)) return reply({ ok:false,error:"A valid Discord user and ticket category are required." },400);
+        const now = new Date().toISOString(), lockKey = "workflow_ticket_lock:" + ownerId;
+        const lock = await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE app_state.updated_at < ? RETURNING key")
+          .bind(lockKey,"locked",now,new Date(Date.now()-120000).toISOString()).first();
+        if (!lock) return reply({ ok:false,error:"A ticket is already being created for this account. Please try again shortly." },409);
+        try {
+          const active = await db.prepare("SELECT value FROM app_state WHERE key=?").bind("workflow_ticket_active:" + ownerId).first();
+          if (active?.value) {
+            const old = await db.prepare("SELECT value FROM app_state WHERE key=?").bind("workflow_ticket:" + active.value).first();
+            const existing = parse(old?.value,{});
+            if (existing.status && existing.status !== "closed" && existing.status !== "cancelled") return reply({ ok:false,error:"You already have an open ticket: " + existing.id, ticket:existing },409);
+          }
+          const sequence = await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES('workflow_ticket_sequence','1',?) ON CONFLICT(key) DO UPDATE SET value=CAST(app_state.value AS INTEGER)+1,updated_at=excluded.updated_at RETURNING value").bind(now).first();
+          const number = Number(sequence?.value);
+          if (!Number.isSafeInteger(number) || number < 1) throw new Error("Could not allocate a ticket number.");
+          const id = String(number).padStart(4,"0");
+          const ticket = { id, number, ownerId, username, category, guildId:text(item.guildId,32), status:"creating", createdAt:now, updatedAt:now, channelId:"", claimedBy:"", pingedAt:"", transcriptMessageId:"" };
+          await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+            .bind("workflow_ticket:" + id,JSON.stringify(ticket),now).run();
+          await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+            .bind("workflow_ticket_active:" + ownerId,id,now).run();
+          return reply({ ok:true,ticket });
+        } finally {
+          await db.prepare("DELETE FROM app_state WHERE key=?").bind(lockKey).run();
+        }
+      }
+      if (url.pathname === "/workflow/ticket" && request.method === "GET") {
+        const id = text(url.searchParams.get("id"),32).trim();
+        if (id) {
+          const row = await db.prepare("SELECT value FROM app_state WHERE key=?").bind("workflow_ticket:" + id).first();
+          const ticket = parse(row?.value,null);
+          return ticket ? reply({ok:true,ticket}) : reply({ok:false,error:"Ticket not found."},404);
+        }
+        const channelId = text(url.searchParams.get("channelId"),32).trim();
+        if (channelId) {
+          const rows = await db.prepare("SELECT value FROM app_state WHERE key LIKE 'workflow_ticket:%' ORDER BY updated_at DESC LIMIT 500").all();
+          const ticket = (rows.results || []).map(row => parse(row.value,{})).find(row => row.channelId === channelId && row.status !== "closed");
+          return ticket ? reply({ok:true,ticket}) : reply({ok:false,error:"Ticket not found for this channel."},404);
+        }
+        return reply({ok:false,error:"A ticket ID or channel ID is required."},400);
+      }
+      if (url.pathname === "/workflow/ticket-update" && request.method === "POST") {
+        const item = await readBody(8192), id = text(item.id,32).trim();
+        if (!id) return reply({ok:false,error:"Ticket ID is required."},400);
+        const key = "workflow_ticket:" + id, row = await db.prepare("SELECT value FROM app_state WHERE key=?").bind(key).first();
+        const ticket = parse(row?.value,null);
+        if (!ticket) return reply({ok:false,error:"Ticket not found."},404);
+        for (const field of ["channelId","status","claimedBy","claimedById","pingedAt","openedMessageId","closedAt","transcriptMessageId","transcriptChannelId"]) {
+          if (item[field] !== undefined) ticket[field] = text(item[field],256);
+        }
+        ticket.updatedAt = new Date().toISOString();
+        await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+          .bind(key,JSON.stringify(ticket),ticket.updatedAt).run();
+        if (ticket.status === "closed" || ticket.status === "cancelled") {
+          const activeKey = "workflow_ticket_active:" + ticket.ownerId;
+          const active = await db.prepare("SELECT value FROM app_state WHERE key=?").bind(activeKey).first();
+          if (active?.value === id) await db.prepare("DELETE FROM app_state WHERE key=?").bind(activeKey).run();
+        }
+        return reply({ok:true,ticket});
+      }
+      if (url.pathname === "/workflow/ticket-ping" && request.method === "POST") {
+        const item = await readBody(1024), id = text(item.id,32).trim(), now = Date.now();
+        if (!id) return reply({ok:false,error:"Ticket ID is required."},400);
+        const key = "workflow_ticket_ping:" + id;
+        const allowed = await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE CAST(app_state.value AS INTEGER)<=CAST(excluded.value AS INTEGER)-300000 RETURNING value")
+          .bind(key,String(now),new Date(now).toISOString()).first();
+        if (!allowed) {
+          const previous = await db.prepare("SELECT value FROM app_state WHERE key=?").bind(key).first();
+          const remaining = Math.max(1,300000-(now-Number(previous?.value||now)));
+          return reply({ok:false,error:"Staff have already been pinged. Please wait " + Math.ceil(remaining/1000) + " seconds."},429);
+        }
+        return reply({ok:true,cooldownSeconds:300});
+      }
+      if (url.pathname === "/workflow/fastpass-create" && request.method === "POST") {
+        const item = await readBody(8192), ownerId = text(item.ownerId,32).trim(), username = text(item.username,80).trim();
+        const previousRoles = text(item.previousRoles,1200).trim(), proofLinks = text(item.proofLinks,1800).trim(), invite = text(item.invite,300).trim();
+        if (!/^\d{17,20}$/.test(ownerId) || !username || !previousRoles || !proofLinks || !invite) return reply({ok:false,error:"Your account, previous roles, proof links and server invite are required."},400);
+        const now = new Date().toISOString(), lockKey = "workflow_fastpass_lock:" + ownerId;
+        const lock = await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE app_state.updated_at < ? RETURNING key")
+          .bind(lockKey,"locked",now,new Date(Date.now()-120000).toISOString()).first();
+        if (!lock) return reply({ok:false,error:"A Fast Pass submission is already being processed. Please try again."},409);
+        try {
+          const pending = await db.prepare("SELECT value FROM app_state WHERE key=?").bind("workflow_fastpass_pending:" + ownerId).first();
+          if (pending?.value) {
+            const old = await db.prepare("SELECT value FROM app_state WHERE key=?").bind("workflow_fastpass:" + pending.value).first();
+            const existing = parse(old?.value,{});
+            if (existing.status === "pending" || existing.status === "evidence_needed") return reply({ok:false,error:"You already have a Fast Pass request awaiting review: " + existing.id},409);
+          }
+          const sequence = await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES('workflow_fastpass_sequence','1',?) ON CONFLICT(key) DO UPDATE SET value=CAST(app_state.value AS INTEGER)+1,updated_at=excluded.updated_at RETURNING value").bind(now).first();
+          const number = Number(sequence?.value);
+          if (!Number.isSafeInteger(number) || number < 1) throw new Error("Could not allocate a Fast Pass number.");
+          const id = "FP-" + String(number).padStart(4,"0");
+          const record = {id,number,ownerId,username,previousRoles,proofLinks,invite,status:"pending",createdAt:now,reviewedAt:"",reviewer:"",reviewMessageId:"",reviewChannelId:""};
+          await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+            .bind("workflow_fastpass:" + id,JSON.stringify(record),now).run();
+          await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+            .bind("workflow_fastpass_pending:" + ownerId,id,now).run();
+          return reply({ok:true,record});
+        } finally {
+          await db.prepare("DELETE FROM app_state WHERE key=?").bind(lockKey).run();
+        }
+      }
+      if (url.pathname === "/workflow/fastpass" && request.method === "GET") {
+        const id = text(url.searchParams.get("id"),32).trim(), row = id ? await db.prepare("SELECT value FROM app_state WHERE key=?").bind("workflow_fastpass:" + id).first() : null;
+        const record = parse(row?.value,null);
+        return record ? reply({ok:true,record}) : reply({ok:false,error:"Fast Pass request not found."},404);
+      }
+      if (url.pathname === "/workflow/fastpass-update" && request.method === "POST") {
+        const item = await readBody(4096), id = text(item.id,32).trim(), key = "workflow_fastpass:" + id;
+        const row = id ? await db.prepare("SELECT value FROM app_state WHERE key=?").bind(key).first() : null;
+        const record = parse(row?.value,null);
+        if (!record) return reply({ok:false,error:"Fast Pass request not found."},404);
+        const status = text(item.status,40);
+        if (!["approved","denied","evidence_needed"].includes(status)) return reply({ok:false,error:"Invalid Fast Pass review status."},400);
+        record.status = status; record.reviewedAt = new Date().toISOString(); record.reviewer = text(item.reviewer,100);
+        if (item.reviewMessageId !== undefined) record.reviewMessageId = text(item.reviewMessageId,32);
+        if (item.reviewChannelId !== undefined) record.reviewChannelId = text(item.reviewChannelId,32);
+        record.reviewNote = text(item.reviewNote,1000);
+        await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+          .bind(key,JSON.stringify(record),record.reviewedAt).run();
+        if (status !== "pending" && status !== "evidence_needed") {
+          const pendingKey = "workflow_fastpass_pending:" + record.ownerId;
+          const pending = await db.prepare("SELECT value FROM app_state WHERE key=?").bind(pendingKey).first();
+          if (pending?.value === id) await db.prepare("DELETE FROM app_state WHERE key=?").bind(pendingKey).run();
+        }
+        return reply({ok:true,record});
+      }
+      if (url.pathname === "/workflow/record" && request.method === "POST") {
+        const item = await readBody(8192), id = text(item.id || crypto.randomUUID(),100), type = text(item.type,32).toLowerCase();
+        if (!id || !["promotion","infraction","warning","strike"].includes(type) || !text(item.player,80).trim() || !text(item.reason,1500).trim()) return reply({ok:false,error:"Record type, player and reason are required."},400);
+        const record = {id,type,player:text(item.player,80),reason:text(item.reason,1500),staff:text(item.staff,100),staffId:text(item.staffId,32),createdAt:iso(item.createdAt),evidence:text(item.evidence,1500)};
+        await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+          .bind("workflow_record:" + id,JSON.stringify(record),record.createdAt).run();
+        return reply({ok:true,record});
+      }
+      if (url.pathname === "/workflow/archive" && request.method === "POST") {
+        const item = await readBody(262144), id = text(item.id || crypto.randomUUID(),100);
+        const archive = {id,createdAt:iso(item.createdAt),sessionId:text(item.sessionId,100),channelId:text(item.channelId,32),commandLogCount:Number(item.commandLogCount||0),modCallCount:Number(item.modCallCount||0),joinLogCount:Number(item.joinLogCount||0),killLogCount:Number(item.killLogCount||0),discordMessageId:text(item.discordMessageId,32),status:text(item.status,32),error:text(item.error,500)};
+        await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
+          .bind("workflow_archive:" + id,JSON.stringify(archive),archive.createdAt).run();
+        return reply({ok:true,archive});
+      }
+
       if (url.pathname === "/bolos" && request.method === "GET") {
         const all = url.searchParams.get("all") === "1";
         const user = text(url.searchParams.get("user"), 100);
