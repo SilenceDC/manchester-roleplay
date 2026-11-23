@@ -517,13 +517,19 @@ async function fastpassModal(env,interaction) {
   const record = created.record;
   let posted;
   try {
-    const payload = {embeds:[{title:"FAST PASS APPLICATION • " + record.id,description:"A new Fast Pass application is awaiting review. Uploaded proof is attached to this review message.",color:16763904,fields:[
+    const imageEmbeds = validAttachments
+      .filter(file => /^image\\//i.test(file.content_type || "") || /\\.(png|jpe?g|webp|gif|bmp|avif)$/i.test(file.filename || ""))
+      .map((file,index) => {
+        const safeName = String(file.filename || ("proof-" + (index+1))).replace(/[\\r\\n"\\\\]/g,"_").slice(0,100);
+        return {image:{url:"attachment://" + safeName},description:"Proof image " + (index+1) + " • " + safeName};
+      });
+    const payload = {embeds:[{title:"FAST PASS APPLICATION • " + record.id,description:"A new Fast Pass application is awaiting review. Proof photos are displayed directly below for easy viewing on desktop and mobile.",color:16763904,fields:[
       {name:"Applicant",value:"<@" + user.id + "> (" + (user.global_name || user.username || "Unknown") + ")"},
       {name:"Previous roles",value:previousRoles.slice(0,1024)},
       {name:"Proof files",value:validAttachments.map(file=>file.filename).join("\n").slice(0,1024)},
       {name:"Server invite",value:invite},
       {name:"Application ID",value:record.id}
-    ],footer:{text:"Only Admin, Internal Affairs and Ownership may review this application."}}],components:[{type:1,components:[
+    ],footer:{text:"Only Admin, Internal Affairs and Ownership may review this application."}},...imageEmbeds],components:[{type:1,components:[
       {type:2,style:3,label:"Approve",custom_id:"fastpass:approve:" + record.id},
       {type:2,style:4,label:"Deny",custom_id:"fastpass:deny:" + record.id},
       {type:2,style:2,label:"Need More Evidence",custom_id:"fastpass:evidence:" + record.id}
