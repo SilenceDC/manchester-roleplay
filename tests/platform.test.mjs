@@ -347,3 +347,9 @@ test("server shutdown captures all available ER:LC v2 log sections before postin
   for (const name of ["CommandLogs","ModCalls","JoinLogs","KillLogs"]) assert.ok(bot.includes('"' + name + '"'));
   assert.ok(bot.includes('CHANNELS.logArchive'));
 });
+
+
+test("gateway start refreshes the guild slash-command registration", () => {
+  assert.ok(bot.includes('const registration = await registerCommands(env);'));
+  assert.ok(bot.includes('commands:registration.registered||[]'));
+});
