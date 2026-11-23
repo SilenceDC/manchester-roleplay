@@ -331,6 +331,15 @@ test("ticket, Fast Pass, session and archive workflow routes are present", () =>
 });
 
 
+test("private ticket channels explicitly grant the bot access", () => {
+  const start = bot.indexOf("async function createTicket");
+  const end = bot.indexOf("\\nasync function ticketByChannel", start);
+  const create = bot.slice(start, end);
+  assert.ok(create.includes('{id:GUILD_ID,type:0,allow:"0",deny:"1024"}'), "ticket should remain hidden from @everyone");
+  assert.ok(create.includes('{id:APP_ID,type:1,allow:viewSend,deny:"0"}'), "bot must be explicitly allowed into private ticket channels");
+  assert.ok(bot.includes('Discord channel post failed (HTTP "+r.status+"):'), "Discord API errors should include the permission detail");
+});
+
 test("Fast Pass collects native Discord file uploads and archives the files in the review channel", () => {
   assert.ok(bot.includes('type:19,custom_id:"proof_files"'));
   assert.ok(bot.includes("interaction.data?.resolved?.attachments"));
