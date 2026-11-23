@@ -40,7 +40,7 @@ The bot uses the existing Turso-backed `app_state` records for ticket/Fast Pass 
 - `/ticket-panel` posts General, Ownership, and Internal Affairs ticket buttons to channel `1574355318560002118`. Private ticket channels are created under category `1574355361627111506`; transcripts are uploaded to `1574357055840587886` before a ticket channel is removed. Ping Staff is limited by a five-minute per-ticket cooldown.
 - `/fastpass-panel` posts the Fast Pass application button to `1574357769266528306`. Applicants submit their previous roles, file proof, and a Discord invite; reviews appear in `1574357807484899418`.
 - `/staff-record` has `promotion`, `infraction`, `warning`, and `strike` subcommands for the corresponding staff-record channels.
-- On `/server shutdown`, the bot requests ER:LC v2 CommandLogs, ModCalls, JoinLogs, and KillLogs before posting a JSON archive and summary embed to `1574355077861351454`.
+- On `/server shutdown`, the bot requests ER:LC v2 CommandLogs, ModCalls, JoinLogs, and KillLogs and exports website moderation records into a JSON archive in `1574355077861351454`. It clears the matching Turso moderation rows only after Discord confirms the archive upload; on upload failure the stored logs remain untouched.
 
 The session announcement channel is intentionally left unset until its channel ID is supplied. The session commands post Discord announcements; they do not power the ER:LC server on or off.
 
