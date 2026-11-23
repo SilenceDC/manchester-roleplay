@@ -413,14 +413,26 @@ async function closeTicket(env,interaction,ticketId) {
   const ticket = result.ticket;
   const allowed = user.id === ticket.ownerId || state.owner || state.admin || state.ia || state.staff;
   if (!allowed) return workflowReply("Only the ticket owner or an authorized staff member can close this ticket.");
-  if (ticket.status === "closed") return workflowReply("This ticket is already closed.");
+  if (ticket.status === "closed" && !ticket.transcriptMessageId) return workflowReply("This ticket is already closed.");
   try {
-    const archived = await ticketTranscript(env,ticket,interaction.channel_id || ticket.channelId,user);
+    // Reuse an existing archive on retries so a failed channel deletion never creates duplicate transcripts.
+    const archived = ticket.transcriptMessageId
+      ? { id: ticket.transcriptMessageId }
+      : await ticketTranscript(env,ticket,interaction.channel_id || ticket.channelId,user);
+    if (!ticket.transcriptMessageId) {
+      await workflowData(env,"/workflow/ticket-update","POST",{id:ticket.id,transcriptMessageId:archived.id,transcriptChannelId:CHANNELS.ticketTranscripts});
+    }
+    // Delete only after Discord confirms the transcript upload succeeded.
+    try {
+      await discordApi(env,"/channels/" + ticket.channelId,{method:"DELETE"});
+    } catch (deleteError) {
+      console.error("Ticket channel deletion failed after transcript archive", {ticketId:ticket.id,channelId:ticket.channelId,error:deleteError.message});
+      return workflowReply("The transcript was saved, but Discord could not delete the ticket channel: " + deleteError.message + ". The ticket can be retried without creating another transcript.");
+    }
     await workflowData(env,"/workflow/ticket-update","POST",{id:ticket.id,status:"closed",closedAt:new Date().toISOString(),transcriptMessageId:archived.id,transcriptChannelId:CHANNELS.ticketTranscripts});
-    await discordApi(env,"/channels/" + ticket.channelId,{method:"DELETE"});
-    return workflowReply("Ticket #" + ticket.id + " was closed and its transcript was saved in the ticket transcripts channel.");
+    return workflowReply("Ticket #" + ticket.id + " was closed, its transcript was saved, and its channel was deleted.");
   } catch (error) {
-    return workflowReply("The ticket was not deleted because the transcript could not be safely saved: " + error.message);
+    return workflowReply("The transcript could not be safely saved or the ticket could not be finalized: " + error.message);
   }
 }
 async function ticketComponent(env,interaction) {
