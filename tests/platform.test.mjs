@@ -353,3 +353,15 @@ test("gateway start refreshes the guild slash-command registration", () => {
   assert.ok(bot.includes('const registration = await registerCommands(env);'));
   assert.ok(bot.includes('commands:registration.registered||[]'));
 });
+
+
+test("shutdown log archive exports website moderation logs and only clears Turso after Discord upload", () => {
+  assert.ok(data.includes("/workflow/modlogs-export"));
+  assert.ok(data.includes("/workflow/modlogs-clear"));
+  const start = bot.indexOf("async function archiveInGameLogs");
+  const upload = bot.indexOf("const message = await discordFileMessage",start);
+  const clear = bot.indexOf('workflowData(env,"/workflow/modlogs-clear","POST"',start);
+  assert.ok(start >= 0 && upload > start && clear > upload, "Turso logs must only be cleared after Discord confirms the archive upload");
+  assert.ok(bot.includes("websiteModerationLogs"));
+  assert.ok(bot.includes("websiteLogsDeleted"));
+});
