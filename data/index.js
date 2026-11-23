@@ -410,6 +410,22 @@ export default {
           await db.prepare("DELETE FROM app_state WHERE key=?").bind(lockKey).run();
         }
       }
+      if (url.pathname === "/workflow/fastpass-delete-fp0003" && request.method === "POST") {
+        const id = "FP-0003";
+        const key = "workflow_fastpass:" + id;
+        const row = await db.prepare("SELECT value FROM app_state WHERE key=?").bind(key).first();
+        const record = parse(row?.value,null);
+        if (!record) return reply({ok:true,deleted:false,id});
+        const pendingKey = "workflow_fastpass_pending:" + text(record.ownerId,32).trim();
+        const pending = await db.prepare("SELECT value FROM app_state WHERE key=?").bind(pendingKey).first();
+        await db.prepare("DELETE FROM app_state WHERE key=?").bind(key).run();
+        let clearedPending = false;
+        if (pending?.value === id) {
+          await db.prepare("DELETE FROM app_state WHERE key=?").bind(pendingKey).run();
+          clearedPending = true;
+        }
+        return reply({ok:true,deleted:true,id,clearedPending});
+      }
       if (url.pathname === "/workflow/fastpass" && request.method === "GET") {
         const id = text(url.searchParams.get("id"),32).trim(), row = id ? await db.prepare("SELECT value FROM app_state WHERE key=?").bind("workflow_fastpass:" + id).first() : null;
         const record = parse(row?.value,null);
