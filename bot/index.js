@@ -605,7 +605,6 @@ async function archiveInGameLogs(env,sessionId) {
 async function serverSessionCommand(env,interaction) {
   const state = interactionRoleState(interaction);
   if (!(state.owner || state.admin || state.ia)) return workflowReply("Only Admin, Internal Affairs or Ownership can post server session updates.");
-  if (!CHANNELS.sessions) return workflowReply("The session announcement channel has not been configured yet. Send Ownership the channel ID for session embeds.");
   const action = interaction.data?.options?.[0]?.name || "";
   if (action === "invite") return workflowReply("Join Texas State Roleplay: " + INVITE);
   const labels = {"start-up":"SESSION STARTED","shutdown":"SESSION SHUTDOWN","low-on-players":"SESSION LOW ON PLAYERS"};
@@ -616,6 +615,7 @@ async function serverSessionCommand(env,interaction) {
     try { archive = await archiveInGameLogs(env,sessionId); }
     catch (error) { archiveError = String(error.message || error).slice(0,500); }
   }
+  if (!CHANNELS.sessions) return workflowReply(action === "shutdown" && archive ? "The shutdown logs were archived to <#" + CHANNELS.logArchive + ">. The session announcement was not posted because its channel ID has not been configured yet." : "The session announcement channel has not been configured yet. Send Ownership the channel ID for session embeds.");
   const description = action === "start-up" ? "A new Texas State Roleplay ER:LC session is now starting. Join the server and follow all session instructions."
     : action === "shutdown" ? "The Texas State Roleplay ER:LC session is shutting down." + (archive ? "\n\n**ER:LC log records archived:** " + (archive.counts.commandLogs+archive.counts.modCalls+archive.counts.joinLogs+archive.counts.killLogs) + "\n**Website moderation records archived:** " + archive.counts.websiteModerationLogs + "\n**Turso website records removed:** " + archive.websiteLogsDeleted + "\nSaved to <#" + CHANNELS.logArchive + ">." + (archive.cleanupError ? "\n\n**Cleanup warning:** " + archive.cleanupError + " (the records were retained in Turso)." : "") : "\n\n**Log archive warning:** " + (archiveError || "No log archive was created.") )
     : "The server is currently low on players. More community members are needed to keep the session active.";
