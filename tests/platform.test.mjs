@@ -313,9 +313,9 @@ test("Texas State Roleplay workflow commands are registered", () => {
   const names = slashCommands.map(command => command.name);
   for (const name of ["server","ticket-panel","close-ticket","fastpass-panel","staff-record"]) assert.ok(names.includes(name), "missing workflow command: " + name);
   const server = slashCommands.find(command => command.name === "server");
-  assert.deepEqual(server.options.map(option => option.name), ["start-up","shutdown","low-on-players","invite"]);
+  assert.equal(server.options.map(option => option.name).join(","), "start-up,shutdown,low-on-players,invite");
   const records = slashCommands.find(command => command.name === "staff-record");
-  assert.deepEqual(records.options.map(option => option.name), ["promotion","infraction","warning","strike"]);
+  assert.equal(records.options.map(option => option.name).join(","), "promotion,infraction,warning,strike");
 });
 
 test("ticket, Fast Pass, session and archive workflow routes are present", () => {
