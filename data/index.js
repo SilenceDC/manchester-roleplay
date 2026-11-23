@@ -592,7 +592,7 @@ export default {
       if (url.pathname === "/cad/live" && request.method === "GET") {
         if (!env.ERLC_SERVER_KEY) return reply({ ok: false, connected: false, error: "ER:LC server key is not configured." }, 503);
         if (liveSnapshotCache.blockedUntil > Date.now()) { const retryAfter = Math.max(1, Math.ceil((liveSnapshotCache.blockedUntil - Date.now()) / 1000)); if (liveSnapshotCache.value) return reply({ ...liveSnapshotCache.value, stale: true, rateLimited: true, retryAfter }); return new Response(JSON.stringify({ ok: false, connected: false, error: "ER:LC rate limit active. Waiting before retrying.", retryAfter }), { status: 429, headers: { "content-type": "application/json; charset=utf-8", "cache-control": "no-store", "retry-after": String(retryAfter), "x-content-type-options": "nosniff" } }); }
-        if (liveSnapshotCache.value && Date.now() - liveSnapshotCache.at < 10000) return reply(liveSnapshotCache.value);
+        if (liveSnapshotCache.value && Date.now() - liveSnapshotCache.at < 15000) return reply(liveSnapshotCache.value);
         try {
           const upstream = await fetch("https://api.erlc.gg/v2/server?Players=true&Vehicles=true&EmergencyCalls=true", { headers: { "Server-Key": env.ERLC_SERVER_KEY, "Accept": "application/json" }, signal: AbortSignal.timeout(9000) });
           const raw = await upstream.text(); let payload; try { payload = JSON.parse(raw); } catch { payload = null; }
