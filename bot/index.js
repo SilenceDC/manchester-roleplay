@@ -786,6 +786,20 @@ export default {
     if (request.method === "GET" && url.pathname === "/gateway/status") {
       return gatewayStub(env).fetch("https://gateway-control/status");
     }
+    if (request.method === "GET" && url.pathname === "/gateway/restart-once") {
+      try {
+        const stub = gatewayStub(env);
+        const stopped = await stub.fetch("https://gateway-control/stop", { method: "POST" });
+        const stopState = await stopped.json();
+        await new Promise(resolve => setTimeout(resolve, 1200));
+        const started = await stub.fetch("https://gateway-control/start", { method: "POST" });
+        const startState = await started.json();
+        return json({ ok: true, preservedDurableObjectStorage: true, stopped: stopState.status || "unknown", gateway: startState });
+      } catch (e) {
+        return json({ ok: false, error: String(e.message || e).slice(0, 300) }, 502);
+      }
+    }
+
 
     async function dashboardApi(request, env, url) {
       const auth=request.headers.get("authorization")||"";
@@ -1001,6 +1015,8 @@ export class ManchesterGateway extends DurableObject {
     if (path === "/stop") {
       this.stopping = true;
       await this.ctx.storage.deleteAlarm();
+      if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+      this.heartbeatInterval = 0;
       try { this.socket?.close(1000, "Stopped by administrator"); } catch {}
       this.socket = null;
       return json(await this.state("offline", { detail: "Gateway connection stopped" }));
