@@ -410,14 +410,17 @@ export default {
           await db.prepare("DELETE FROM app_state WHERE key=?").bind(lockKey).run();
         }
       }
-      if (url.pathname === "/workflow/fastpass-delete-fp0003" && request.method === "POST") {
-        const id = "FP-0003";
+      if (url.pathname === "/workflow/fastpass-delete" && request.method === "POST") {
+        const item = await readBody(1024);
+        const id = text(item.id,16).trim().toUpperCase();
+        if (!/^FP-\\d{4}$/.test(id)) return reply({ok:false,error:"Invalid Fast Pass ID."},400);
         const key = "workflow_fastpass:" + id;
         const row = await db.prepare("SELECT value FROM app_state WHERE key=?").bind(key).first();
         const record = parse(row?.value,null);
         if (!record) return reply({ok:true,deleted:false,id});
-        const pendingKey = "workflow_fastpass_pending:" + text(record.ownerId,32).trim();
-        const pending = await db.prepare("SELECT value FROM app_state WHERE key=?").bind(pendingKey).first();
+        const ownerId = text(record.ownerId,32).trim();
+        const pendingKey = ownerId ? "workflow_fastpass_pending:" + ownerId : "";
+        const pending = pendingKey ? await db.prepare("SELECT value FROM app_state WHERE key=?").bind(pendingKey).first() : null;
         await db.prepare("DELETE FROM app_state WHERE key=?").bind(key).run();
         let clearedPending = false;
         if (pending?.value === id) {
