@@ -365,3 +365,10 @@ test("shutdown log archive exports website moderation logs and only clears Turso
   assert.ok(bot.includes("websiteModerationLogs"));
   assert.ok(bot.includes("websiteLogsDeleted"));
 });
+
+
+test("session announcement and database archive embeds share the configured session channel", () => {
+  assert.ok(bot.includes('sessions:"1574355077861351454"'));
+  assert.ok(bot.includes('logArchive:"1574355077861351454"'));
+  assert.ok(!bot.includes('if (!CHANNELS.sessions) return workflowReply'));
+});
