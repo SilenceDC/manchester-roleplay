@@ -14,6 +14,7 @@ const dataWriteInvalidations = {
   "/bolo-update": ["/bolos"],
   "/warning-create": ["/warnings"],
   "/modlog-write": ["/modlogs"],
+  "/workflow/modlogs-clear": ["/modlogs"],
   "/announcement-upsert": ["/announcements"],
   "/announcement-delete": ["/announcements"],
   "/cad/unit-upsert": ["/cad/overview"],
@@ -511,6 +512,29 @@ export default {
         await writeLog(db, item);
         return reply({ ok: true });
       }
+
+      if (url.pathname === "/workflow/modlogs-export" && request.method === "GET") {
+        const result = await db.prepare("SELECT id,payload_json FROM moderation_logs ORDER BY occurred_at ASC,id ASC").all();
+        const logs = (result.results || []).map(row => {
+          const payload = rowPayload(row);
+          return {...payload,id:payload.id || row.id};
+        });
+        return reply({ok:true,logs,ids:logs.map(item=>item.id)});
+      }
+      if (url.pathname === "/workflow/modlogs-clear" && request.method === "POST") {
+        const item = await readBody(131072);
+        const ids = [...new Set((Array.isArray(item.ids) ? item.ids : []).map(value=>text(value,100).trim()).filter(Boolean))].slice(0,5000);
+        if (!ids.length) return reply({ok:true,deleted:0});
+        let deleted = 0;
+        for (let offset=0; offset<ids.length; offset+=100) {
+          const chunk = ids.slice(offset,offset+100);
+          const placeholders = chunk.map(()=>"?").join(",");
+          const result = await db.prepare("DELETE FROM moderation_logs WHERE id IN (" + placeholders + ")").bind(...chunk).run();
+          deleted += Number(result.meta?.changes || 0);
+        }
+        return reply({ok:true,deleted,requested:ids.length});
+      }
+
       if (url.pathname === "/modlogs" && request.method === "GET") {
         const result = await db.prepare("SELECT payload_json FROM moderation_logs ORDER BY occurred_at DESC LIMIT 100").all();
         return reply({ logs: (result.results || []).map(rowPayload) });
