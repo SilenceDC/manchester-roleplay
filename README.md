@@ -31,3 +31,17 @@ Cloudflare is the production runtime. Existing Worker bindings and persistent re
 ## Project boundaries
 
 Only the four Texas State Roleplay Workers listed above are included. Legacy TSRP/Government projects and Workers are intentionally excluded and must not be changed as part of this project.
+
+## Discord workflow features
+
+The bot uses the existing Turso-backed `app_state` records for ticket/Fast Pass numbering and workflow state.
+
+- `/server start-up`, `/server shutdown`, and `/server low-on-players` post restricted session embeds. `/server invite` returns the configured invite.
+- `/ticket-panel` posts General, Ownership, and Internal Affairs ticket buttons to channel `1574355318560002118`. Private ticket channels are created under category `1574355361627111506`; transcripts are uploaded to `1574357055840587886` before a ticket channel is removed. Ping Staff is limited by a five-minute per-ticket cooldown.
+- `/fastpass-panel` posts the Fast Pass application button to `1574357769266528306`. Applicants submit their previous roles, file proof, and a Discord invite; reviews appear in `1574357807484899418`.
+- `/staff-record` has `promotion`, `infraction`, `warning`, and `strike` subcommands for the corresponding staff-record channels.
+- On `/server shutdown`, the bot requests ER:LC v2 CommandLogs, ModCalls, JoinLogs, and KillLogs before posting a JSON archive and summary embed to `1574355077861351454`.
+
+The session announcement channel is intentionally left unset until its channel ID is supplied. The session commands post Discord announcements; they do not power the ER:LC server on or off.
+
+Post the ticket and Fast Pass panels once after deploying by running `/ticket-panel` and `/fastpass-panel` as Admin, Internal Affairs, or Ownership. The bot needs View Channel, Send Messages, Embed Links, Attach Files, Read Message History, Manage Channels, and permission to create private channel overwrites for the configured support roles.
