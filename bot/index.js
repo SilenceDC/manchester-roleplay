@@ -30,7 +30,7 @@ const COMMANDS = [
   { name: "close-ticket", description: "Close the ticket channel and save its transcript.", type: 1 },
   { name: "fastpass-panel", description: "Post the Fast Pass application panel.", type: 1 },
   { name: "staff-record", description: "Create a staff record in the appropriate channel.", type: 1, options: [
-    {type:1,name:"promotion",description:"Record a staff promotion.",options:[{name:"player",description:"Discord or Roblox name",type:3,required:true},{name:"reason",description:"Promotion details",type:3,required:true,max_length:1000},{name:"evidence",description:"Optional evidence URL",type:3,required:false,max_length:500}]},
+    {type:1,name:"promotion",description:"Record a staff promotion.",options:[{name:"player",description:"Discord or Roblox name",type:3,required:true},{name:"role",description:"The new staff role or rank",type:8,required:true},{name:"reason",description:"Promotion details",type:3,required:true,max_length:1000}]},
     {type:1,name:"infraction",description:"Record a staff infraction.",options:[{name:"player",description:"Staff member",type:3,required:true},{name:"reason",description:"Infraction details",type:3,required:true,max_length:1000},{name:"evidence",description:"Optional evidence URL",type:3,required:false,max_length:500}]},
     {type:1,name:"warning",description:"Record a staff warning.",options:[{name:"player",description:"Staff member",type:3,required:true},{name:"reason",description:"Warning details",type:3,required:true,max_length:1000},{name:"evidence",description:"Optional evidence URL",type:3,required:false,max_length:500}]},
     {type:1,name:"strike",description:"Record a staff strike.",options:[{name:"player",description:"Staff member",type:3,required:true},{name:"reason",description:"Strike details",type:3,required:true,max_length:1000},{name:"evidence",description:"Optional evidence URL",type:3,required:false,max_length:500}]}
@@ -573,16 +573,20 @@ async function staffRecordCommand(env,interaction) {
   if (!(state.owner || state.admin || state.ia)) return workflowReply("Only Admin, Internal Affairs or Ownership can create staff records.");
   const group = interaction.data?.options?.[0] || {}, type = String(group.name || "").toLowerCase();
   const opts = Object.fromEntries((group.options || []).map(option=>[option.name,option.value]));
-  const player = String(opts.player || "").trim(), reason = String(opts.reason || "").trim(), evidence = String(opts.evidence || "").trim();
+  const player = String(opts.player || "").trim(), reason = String(opts.reason || "").trim();
+  const roleId = type === "promotion" ? String(opts.role || "").trim() : "";
+  const roleData = roleId ? interaction.data?.resolved?.roles?.[roleId] : null;
+  const roleName = roleData?.name || "";
   const channels = {promotion:CHANNELS.promotions,infraction:CHANNELS.infractions,warning:CHANNELS.warnings,strike:CHANNELS.strikes};
   if (!channels[type] || !player || !reason) return workflowReply("Select a record type and provide both a staff member and a reason.");
-  if (evidence && !/^https:\/\//i.test(evidence)) return workflowReply("Evidence must be an HTTPS link.");
+  if (type === "promotion" && (!roleId || !/^\d{17,20}$/.test(roleId))) return workflowReply("Choose the new role/rank for this promotion.");
   const user = interactionUser(interaction), now = new Date().toISOString(), id = type.toUpperCase() + "-" + crypto.randomUUID().slice(0,8).toUpperCase();
-  const record = {id,type,player,reason,evidence,staff:user.global_name||user.username||"Unknown",staffId:user.id,createdAt:now};
+  const record = {id,type,player,reason,roleId:roleId||null,roleName:roleName||null,staff:user.global_name||user.username||"Unknown",staffId:user.id,createdAt:now};
   try { await workflowData(env,"/workflow/record","POST",record); }
   catch (error) { return workflowReply("The record could not be saved: " + error.message); }
-  const fields = [{name:"Staff member",value:player.slice(0,1024)},{name:"Details",value:reason.slice(0,1024)},{name:"Issued by",value:"<@" + user.id + ">"},{name:"Record ID",value:id}];
-  if (evidence) fields.push({name:"Evidence",value:evidence.slice(0,1024)});
+  const fields = [{name:"Staff member",value:player.slice(0,1024)}];
+  if (type === "promotion") fields.push({name:"New role / rank",value:"<@&"+roleId+">"+(roleName?" ("+roleName+")":"")});
+  fields.push({name:"Details",value:reason.slice(0,1024)},{name:"Issued by",value:"<@" + user.id + ">"},{name:"Record ID",value:id});
   try { await discordChannelMessage(env,channels[type],{embeds:[{title:"STAFF " + type.toUpperCase(),color:type==="promotion"?5763719:type==="warning"?16763904:15548997,fields,timestamp:now,footer:{text:"Texas State Roleplay • Staff Records"}}],allowed_mentions:{users:[user.id],parse:[]}}); }
   catch (error) { return workflowReply("Record was saved to the data store, but the Discord channel post failed: " + error.message); }
   return workflowReply(type.charAt(0).toUpperCase()+type.slice(1)+" record " + id + " was saved.");
@@ -1253,7 +1257,7 @@ export class ManchesterGateway extends DurableObject {
   }
   async alarm() {
     if (this.stopping) return;
-    if ((await this.ctx.storage.get("moderation_commands_version")) !== "manchester-roleplay-commands-v2") {
+    if ((await this.ctx.storage.get("moderation_commands_version")) !== "texas-state-roleplay-commands-v3") {
       try { const registration = await registerCommands(this.env); if (registration.ok) { await this.ctx.storage.put("moderation_commands_registered", true); await this.ctx.storage.put("moderation_commands_version", "manchester-roleplay-commands-v2"); } } catch (error) { console.error("Moderation command registration:", error.message); }
     }
     if (this.socket && this.socket.readyState === WebSocket.CONNECTING) {
