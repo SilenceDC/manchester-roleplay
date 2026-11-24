@@ -351,7 +351,7 @@ function slug(value) {
   return out || "member";
 }
 async function postTicketPanel(env) {
-  const embed = {title:"Texas State Roleplay | Support Center",description:"Choose the ticket type that best fits your request. A private channel will be created for you and the relevant team.\n\n**General Ticket** — General questions, support, and community assistance.\n**Ownership Ticket** — Private matters that need Ownership review.\n**Internal Affairs Ticket** — Staff complaints, staff conduct, or sensitive investigations.\n\nPlease open one ticket per issue and provide clear details. Do not open duplicate tickets.",color:5793266,footer:{text:"Texas State Roleplay • Ticket Support"}};
+  const embed = {title:"Texas State Roleplay | Support Center",description:"Select the ticket type that best matches your request.\n\n**General Ticket** — general queries, support and community assistance.\n**Ownership Ticket** — Private matters that require Ownership review.\n**Internal Affairs ticket:** Staff complaints, staff conduct or sensitive investigations.\n\nPlease one ticket per issue and include all the relevant details. Don't open duplicate tickets.",color:5793266,footer:{text:"Texas State Roleplay • Ticket Support"}};
   return discordChannelMessage(env,CHANNELS.ticketPanel,{embeds:[embed],components:[{type:1,components:[
     {type:2,style:1,label:"General Ticket",custom_id:"ticket:create:general"},
     {type:2,style:2,label:"Ownership",custom_id:"ticket:create:ownership"},
