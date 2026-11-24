@@ -172,7 +172,7 @@ async function moderationRun(env, interaction, name) {
  }
  const gate=await dataRequest(env, "/modgate",{method:"POST"}); if(!gate.ok){const d=await gate.json();return reply(d.message||"Please wait before sending another ER:LC command.");}
  let ok=false, result=""; try { const key=String(env.ERLC_SERVER_KEY||"").trim(); if(!key) throw new Error("ER:LC server key is not configured."); const res=await fetch("https://api.erlc.gg/v2/server/command",{method:"POST",headers:{"server-key":key,...(String(env.ERLC_GLOBAL_API_KEY||"").trim()?{Authorization:String(env.ERLC_GLOBAL_API_KEY).trim()}:{}),"content-type":"application/json"},body:JSON.stringify({command})}); const body=await res.text(); let data={}; try{data=JSON.parse(body)}catch{} if(!res.ok||data.success===false||data.Success===false) throw new Error(String(data.message||data.Message||"ER:LC rejected the command (HTTP "+res.status+")").slice(0,200)); ok=true; result=String(data.message||data.Message||"ER:LC accepted the command."); } catch(e){result=String(e.message||e)}
- await sendModerationLog(env,"**"+name.toUpperCase()+" — "+(ok?"SUCCESS":"FAILED")+"**\nPlayer: "+player+"\nStaff: "+(user.global_name||user.username||"Unknown")+"\nReason: "+reason+"\nResult: "+result); if(!ok) return reply("ER:LC action failed: "+result); return reply("ER:LC accepted "+name+" for "+player+". Reason: "+reason+". Recorded in moderation logs.");
+ if(!ok) return reply("ER:LC action failed: "+result); return reply("ER:LC accepted "+name+" for "+player+". Reason: "+reason+". Recorded in moderation logs.");
 }
 
 async function auditedModerationRun(env, interaction, name, source) {
@@ -637,7 +637,7 @@ async function archiveInGameLogs(env,sessionId) {
   const serialized=JSON.stringify(archive,null,2);
   if(serialized.length>7500000)throw new Error("The combined session archive is too large for one Discord file.");
   const counts={commandLogs:commandLogs.length,modCalls:modCalls.length,joinLogs:joinLogs.length,killLogs:killLogs.length,websiteModerationLogs:websiteModerationLogs.length};
-  const message=await discordFileMessage(env,CHANNELS.logArchive,{embeds:[{title:"ER:LC SESSION LOG ARCHIVE",description:erlcError?"ER:LC was unavailable at shutdown. Available website audit records have still been archived.":"ER:LC logs and website moderation records captured before shutdown.",color:erlcError?16763904:5793266,fields:[
+  const message = await discordFileMessage(env,CHANNELS.logArchive,{embeds:[{title:"ER:LC SESSION LOG ARCHIVE",description:erlcError?"ER:LC was unavailable at shutdown. Available website audit records have still been archived.":"ER:LC logs and website moderation records captured before shutdown.",color:erlcError?16763904:5793266,fields:[
     {name:"Session",value:String(activeSessionId||"Unspecified")},{name:"ER:LC API",value:erlcError?"Unavailable — see archive file":"Available",inline:true},
     {name:"Command logs",value:String(counts.commandLogs),inline:true},{name:"Moderator calls",value:String(counts.modCalls),inline:true},{name:"Join/leave logs",value:String(counts.joinLogs),inline:true},{name:"Kill logs",value:String(counts.killLogs),inline:true},{name:"Website moderation records",value:String(counts.websiteModerationLogs),inline:true}
   ],timestamp:capturedAt,footer:{text:"Texas State Roleplay • Permanent Session Archive"}}],allowed_mentions:{parse:[]}},"texasrp-session-"+slug(activeSessionId||"session")+"-logs.json",serialized,"application/json");
@@ -654,6 +654,7 @@ async function serverSessionCommand(env,interaction) {
   if(action==="invite")return workflowReply("Join Texas State Roleplay: "+INVITE);
   const labels={"start-up":"SESSION STARTED","shutdown":"SESSION SHUTDOWN","low-on-players":"SESSION LOW ON PLAYERS"};
   if(!labels[action])return workflowReply("Choose start-up, shutdown or low-on-players.");
+  if(!CHANNELS.sessions)return workflowReply("The session announcement channel has not been configured yet. Send Ownership the channel ID for session embeds.");
   const user=interactionUser(interaction),now=new Date().toISOString();
   let sessionId="";
   if(action==="start-up"){
