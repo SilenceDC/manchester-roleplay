@@ -227,7 +227,7 @@ test("the bot returns a valid immediate /ping response and Texas descriptions", 
 
 
 test("website caches live CAD snapshots and serves bounded stale data during upstream failures", () => {
-  assert.match(website, /CAD_LIVE_CACHE_TTL_MS = 60000/);
+  assert.match(website, /CAD_LIVE_CACHE_TTL_MS = 15000/);
   assert.match(website, /CAD_LIVE_STALE_MAX_MS = 600000/);
   assert.match(website, /cadLiveResponseCache/);
   assert.match(website, /stale:true,retryAfter/);
@@ -348,13 +348,16 @@ test("Fast Pass collects native Discord file uploads and archives the files in t
   assert.ok(bot.includes('file_types:["image","video",".pdf"]'));
 });
 
-test("server shutdown captures all available ER:LC v2 log sections before posting the shutdown notice", () => {
+test("server shutdown captures available ER:LC and website logs before posting the shutdown notice", () => {
   const archive = bot.indexOf("async function archiveInGameLogs");
-  const shutdown = bot.indexOf('if (action === "shutdown")', archive);
+  const session = bot.indexOf("async function serverSessionCommand");
+  const shutdown = bot.indexOf('if(action==="shutdown")', session);
+  const call = bot.indexOf("await archiveInGameLogs(env,sessionId)", shutdown);
   const post = bot.indexOf('discordChannelMessage(env,CHANNELS.sessions', shutdown);
-  assert.ok(archive >= 0 && shutdown > archive && post > shutdown);
-  for (const name of ["CommandLogs","ModCalls","JoinLogs","KillLogs"]) assert.ok(bot.includes('"' + name + '"'));
+  assert.ok(archive >= 0 && session > 0 && shutdown > session && call > shutdown && post > call);
+  for (const name of ["CommandLogs","ModCalls","JoinLogs","KillLogs"]) assert.ok(bot.includes('"'+name+'"'));
   assert.ok(bot.includes('CHANNELS.logArchive'));
+  assert.ok(bot.includes("erlcLogsAvailable:!erlcError"));
 });
 
 
