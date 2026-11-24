@@ -370,15 +370,20 @@ export default {
       if (url.pathname === "/workflow/ticket-ping" && request.method === "POST") {
         const item = await readBody(1024), id = text(item.id,32).trim(), now = Date.now();
         if (!id) return reply({ok:false,error:"Ticket ID is required."},400);
+        const ticketRow = await db.prepare("SELECT value FROM app_state WHERE key=?").bind("workflow_ticket:" + id).first();
+        const ticket = parse(ticketRow?.value,null);
+        if (!ticket) return reply({ok:false,error:"Ticket not found."},404);
+        const cooldownMs = ticket.category === "ownership" ? 1800000 : 300000;
+        const cooldownSeconds = cooldownMs / 1000;
         const key = "workflow_ticket_ping:" + id;
-        const allowed = await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE CAST(app_state.value AS INTEGER)<=CAST(excluded.value AS INTEGER)-300000 RETURNING value")
-          .bind(key,String(now),new Date(now).toISOString()).first();
+        const allowed = await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE CAST(app_state.value AS INTEGER)<=CAST(excluded.value AS INTEGER)-? RETURNING value")
+          .bind(key,String(now),new Date(now).toISOString(),cooldownMs).first();
         if (!allowed) {
           const previous = await db.prepare("SELECT value FROM app_state WHERE key=?").bind(key).first();
-          const remaining = Math.max(1,300000-(now-Number(previous?.value||now)));
+          const remaining = Math.max(1,cooldownMs-(now-Number(previous?.value||now)));
           return reply({ok:false,error:"Staff have already been pinged. Please wait " + Math.ceil(remaining/1000) + " seconds."},429);
         }
-        return reply({ok:true,cooldownSeconds:300});
+        return reply({ok:true,cooldownSeconds});
       }
       if (url.pathname === "/workflow/fastpass-create" && request.method === "POST") {
         const item = await readBody(8192), ownerId = text(item.ownerId,32).trim(), username = text(item.username,80).trim();
