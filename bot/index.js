@@ -322,8 +322,8 @@ function ticketSupportRoles(category) {
 }
 function ticketPingRoles(category) {
   if (category === "ownership") return ["1573038226510192864"];
-  if (category === "internal-affairs") return ["1573038132289343609","1573038142963978441","1573038226510192864"];
-  return ["1573028899405693049","1573038132289343609","1573038142963978441","1573038226510192864"];
+  if (category === "internal-affairs") return ["1573038132289343609"];
+  return ["1573028899405693049"];
 }
 function slug(value) {
   const out = String(value || "member").toLowerCase().normalize("NFKD").replace(/[^a-z0-9-]+/g,"-").replace(/-+/g,"-").replace(/^-|-$/g,"").slice(0,45);
@@ -473,11 +473,14 @@ async function ticketComponent(env,interaction) {
     return workflowReply("You have claimed ticket #" + id + ".");
   }
   if (action === "ping") {
-    try { await workflowData(env,"/workflow/ticket-ping","POST",{id}); }
+    let pingResult;
+    try { pingResult = await workflowData(env,"/workflow/ticket-ping","POST",{id}); }
     catch (error) { return workflowReply(error.message); }
     const roles = ticketPingRoles(ticket.category);
-    await discordChannelMessage(env,ticket.channelId,{content:"Staff assistance requested by <@" + user.id + "> " + roles.map(role=>"<@&"+role+">").join(" "),allowed_mentions:{users:[user.id],roles}});
-    return workflowReply("The relevant staff team has been pinged. The next ping is available after the cooldown.");
+    const ownerId = ticket.ownerId;
+    await discordChannelMessage(env,ticket.channelId,{content:"Staff assistance requested for ticket owner <@" + ownerId + "> (requested by <@" + user.id + ">). " + roles.map(role=>"<@&"+role+">").join(" "),allowed_mentions:{users:[ownerId,user.id],roles}});
+    const minutes = Math.ceil(Number(pingResult.cooldownSeconds || 300) / 60);
+    return workflowReply("The relevant staff team has been pinged. The next ping is available in " + minutes + " minute" + (minutes === 1 ? "" : "s") + ".");
   }
   return workflowReply("Unknown ticket action.");
 }
