@@ -38,6 +38,12 @@ const COMMANDS = [
   ] }
 ];
 
+function nextGatewayAlarm(tasks = {}) {
+  const due = Object.values(tasks).filter(value => Number.isFinite(value));
+  return due.length ? Math.min(...due) : null;
+}
+const COMMANDS_VERSION = "texas-state-roleplay-commands-v4";
+
 function json(data, status = 200) {
   return Response.json(data, { status, headers: { "cache-control": "no-store" } });
 }
@@ -958,6 +964,47 @@ export class ManchesterGateway extends DurableObject {
     this.stopping = false;
     this.reconnectSeconds = 5;
     this.recoveryRunning = false;
+    this.schedulerQueue = Promise.resolve();
+  }
+  async withGatewaySchedulerLock(work) {
+    const previous = this.schedulerQueue;
+    let release;
+    this.schedulerQueue = new Promise(resolve => { release = resolve; });
+    await previous;
+    try { return await work(); }
+    finally { release(); }
+  }
+  async mutateGatewayTasks(mutator) {
+    return this.withGatewaySchedulerLock(async () => {
+      const tasks = await this.ctx.storage.get("gateway_alarm_tasks") || {};
+      const result = mutator(tasks);
+      await this.ctx.storage.put("gateway_alarm_tasks", tasks);
+      const next = nextGatewayAlarm(tasks);
+      if (next !== null) await this.ctx.storage.setAlarm(Math.max(Date.now() + 250, next));
+      else await this.ctx.storage.deleteAlarm();
+      return result;
+    });
+  }
+  async scheduleGatewayTask(name, runAt, keepEarlier = false) {
+    return this.mutateGatewayTasks(tasks => {
+      const existing = tasks[name];
+      if (keepEarlier && Number.isFinite(existing) && existing <= runAt) return false;
+      tasks[name] = runAt;
+      return true;
+    });
+  }
+  async clearGatewayTask(name) {
+    return this.mutateGatewayTasks(tasks => { delete tasks[name]; return true; });
+  }
+  async clearGatewayTasks() {
+    return this.mutateGatewayTasks(tasks => { for (const name of Object.keys(tasks)) delete tasks[name]; return true; });
+  }
+  async takeDueGatewayTasks(now = Date.now()) {
+    return this.mutateGatewayTasks(tasks => {
+      const due = Object.entries(tasks).filter(([, runAt]) => Number.isFinite(runAt) && runAt <= now).map(([name]) => name);
+      for (const name of due) delete tasks[name];
+      return due;
+    });
   }
   async state(status, extra = {}) {
     const previous = await this.ctx.storage.get("gateway_status") || {};
@@ -1003,6 +1050,7 @@ export class ManchesterGateway extends DurableObject {
       if (this.socket && (this.socket.readyState === WebSocket.OPEN || this.socket.readyState === WebSocket.CONNECTING)) {
         return json(current || { status: "connecting" });
       }
+      await this.clearGatewayTask("reconnect");
       await this.connect();
       return json(await this.ctx.storage.get("gateway_status") || { status: "starting" });
     }
@@ -1039,9 +1087,9 @@ export class ManchesterGateway extends DurableObject {
     if (path === "/modlogs" && request.method === "GET") { return json({logs:(await this.ctx.storage.get("mod_logs")||[]).slice(0,100)}); }
     if (path === "/stop") {
       this.stopping = true;
-      await this.ctx.storage.deleteAlarm();
-      if (this.heartbeatInterval) clearInterval(this.heartbeatInterval);
+      await this.clearGatewayTasks();
       this.heartbeatInterval = 0;
+      this.awaitingAck = false;
       try { this.socket?.close(1000, "Stopped by administrator"); } catch {}
       this.socket = null;
       return json(await this.state("offline", { detail: "Gateway connection stopped" }));
@@ -1053,6 +1101,8 @@ export class ManchesterGateway extends DurableObject {
     if (!token) return this.state("needs_token", { detail: "DISCORD_BOT_TOKEN is missing" });
     try {
       await this.state("connecting", { detail: "Preparing Discord Gateway connection" });
+      this.heartbeatInterval = 0;
+      this.awaitingAck = false;
       this.sessionId = await this.ctx.storage.get("discord_session_id") || null;
       this.resumeGatewayUrl = await this.ctx.storage.get("discord_resume_gateway_url") || null;
       this.sequence = await this.ctx.storage.get("discord_sequence");
@@ -1079,7 +1129,7 @@ export class ManchesterGateway extends DurableObject {
         this.onMessage(socket, event.data).catch((e) => {
           const detail = String(e?.message || e).slice(0, 220);
           this.state("recovering", { detail: "Gateway event processing failed; reconciliation scheduled: " + detail })
-            .then(() => this.ctx.storage.setAlarm(Date.now() + 10000))
+            .then(() => this.scheduleGatewayTask("recovery", Date.now() + 10000))
             .catch(() => {});
         });
       });
@@ -1088,19 +1138,26 @@ export class ManchesterGateway extends DurableObject {
         try { socket.close(4000, "Gateway socket error"); } catch {}
       });
       socket.addEventListener("close", (event) => {
-        if (this.socket === socket) this.socket = null;
-        if (event.code === 4007 || event.code === 4009) {
-          this.sessionId = null; this.resumeGatewayUrl = null; this.sequence = null;
-          this.ctx.storage.delete("discord_session_id").catch(() => {});
-          this.ctx.storage.delete("discord_resume_gateway_url").catch(() => {});
-          this.ctx.storage.delete("discord_sequence").catch(() => {});
-        }
-        if (!this.stopping) {
-          this.state("reconnecting", { detail: "Discord Gateway closed (" + event.code + "); reconnect scheduled" }).catch(() => {});
-          this.scheduleReconnect().catch(() => {});
-        }
+        (async () => {
+          if (this.socket === socket) this.socket = null;
+          this.heartbeatInterval = 0;
+          this.awaitingAck = false;
+          await this.clearGatewayTask("heartbeat");
+          await this.clearGatewayTask("connect_timeout");
+          if (event.code === 4007 || event.code === 4009) {
+            this.sessionId = null; this.resumeGatewayUrl = null; this.sequence = null;
+            await this.ctx.storage.delete("discord_session_id");
+            await this.ctx.storage.delete("discord_resume_gateway_url");
+            await this.ctx.storage.delete("discord_sequence");
+          }
+          if (!this.stopping) {
+            const reason = String(event.reason || "no reason provided").slice(0, 160);
+            await this.state("reconnecting", { detail: "Discord Gateway closed (" + event.code + ", " + reason + "); reconnect scheduled", last_close_code:event.code, last_close_reason:reason, last_closed_at:new Date().toISOString() });
+            await this.scheduleReconnect();
+          }
+        })().catch(error => console.error("Gateway close handler failed:", error.message));
       });
-      await this.ctx.storage.setAlarm(Date.now() + 15000);
+      await this.scheduleGatewayTask("connect_timeout", Date.now() + 15000);
     } catch (error) {
       await this.state("error", { detail: error.message });
       await this.scheduleReconnect();
@@ -1112,7 +1169,11 @@ export class ManchesterGateway extends DurableObject {
     if (packet.s !== null && packet.s !== undefined) { this.sequence = packet.s; await this.ctx.storage.put("discord_sequence", packet.s); }
     if (packet.op === 10) {
       this.heartbeatInterval = Number(packet.d.heartbeat_interval);
+      if (!Number.isFinite(this.heartbeatInterval) || this.heartbeatInterval < 1000) throw new Error("Discord sent an invalid heartbeat interval.");
       this.awaitingAck = false;
+      await this.clearGatewayTask("connect_timeout");
+      await this.scheduleGatewayTask("heartbeat", Date.now() + Math.floor(Math.random() * this.heartbeatInterval));
+      await this.state("connecting", { heartbeat_interval_ms:this.heartbeatInterval });
       const savedSession = await this.ctx.storage.get("discord_session_id");
       const savedSequence = await this.ctx.storage.get("discord_sequence");
       if (savedSession && savedSequence !== null && savedSequence !== undefined) {
@@ -1122,7 +1183,6 @@ export class ManchesterGateway extends DurableObject {
         socket.send(JSON.stringify({ op: 2, d: { token: tokenFrom(this.env), intents: 33287, properties: { os: "cloudflare-workers", browser: "manchester-roleplay", device: "manchester-roleplay" }, presence: { status: "online", since: null, activities: [{ name: "Texas State Roleplay | ER:LC", type: 0 }], afk: false } } }));
         await this.state("identifying", { detail: "Discord Hello received; sending Identify" });
       }
-      await this.ctx.storage.setAlarm(Date.now() + Math.max(1000, Math.floor(this.heartbeatInterval * 0.75)));
       return;
     }
     if (packet.op === 11) {
@@ -1154,10 +1214,14 @@ export class ManchesterGateway extends DurableObject {
       if (this.sessionId) await this.ctx.storage.put("discord_session_id", this.sessionId);
       if (this.resumeGatewayUrl) await this.ctx.storage.put("discord_resume_gateway_url", this.resumeGatewayUrl);
       this.reconnectSeconds = 5;
+      await this.clearGatewayTask("reconnect");
+      await this.scheduleGatewayTask("heartbeat", Date.now() + this.heartbeatInterval);
       await this.state("recovering", { detail: "Gateway READY; reconciling recent messages and audit logs", user: packet.d.user?.username || "Texas State Roleplay bot", user_id: packet.d.user?.id });
       await this.runRecoveryScan("fresh Gateway session");
     } else if (packet.op === 0 && packet.t === "RESUMED") {
       this.reconnectSeconds = 5;
+      await this.clearGatewayTask("reconnect");
+      await this.scheduleGatewayTask("heartbeat", Date.now() + this.heartbeatInterval);
       await this.state("recovering", { detail: "Gateway session resumed; reconciling missed events" });
       await this.runRecoveryScan("resumed Gateway session");
     } else if (packet.op === 0 && packet.t === "INTERACTION_CREATE") {
@@ -1297,54 +1361,73 @@ export class ManchesterGateway extends DurableObject {
       if (complete) {
         const report = await this.sendOutageReport(messages, audit, pending);
         pending = await this.flushPendingDeliveries();
+        await this.clearGatewayTask("recovery");
         await this.state("online", { detail: "Gateway connected; recovery scan complete", ...stats, outage_report: report });
-      } else { await this.state("recovering", { detail: "Recovery scan is continuing; another pass is scheduled", ...stats }); await this.ctx.storage.setAlarm(Date.now() + 10000); }
+      } else { await this.state("recovering", { detail: "Recovery scan is continuing; another pass is scheduled", ...stats }); await this.scheduleGatewayTask("recovery", Date.now() + 10000); }
       return { complete, messages, audit, pending };
     } catch (error) {
       await this.state("recovering", { detail: "Recovery scan failed and will retry: " + String(error.message || error).slice(0, 220), last_recovery_error_at: new Date().toISOString() });
-      await this.ctx.storage.setAlarm(Date.now() + 15000);
+      await this.scheduleGatewayTask("recovery", Date.now() + 15000);
       return { complete: false, error: String(error.message || error).slice(0, 300) };
     } finally { this.recoveryRunning = false; }
   }
   sendHeartbeat() {
-    if (this.socket && this.socket.readyState === WebSocket.OPEN) {
+    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) return false;
+    try {
       this.socket.send(JSON.stringify({ op: 1, d: this.sequence }));
       this.awaitingAck = true;
+      return true;
+    } catch (error) {
+      console.error("Discord heartbeat send failed:", error.message);
+      try { this.socket.close(4000, "Heartbeat send failed"); } catch {}
+      return false;
     }
   }
   async scheduleReconnect(delayMs) {
     if (this.stopping) return;
-    const delay = delayMs || this.reconnectSeconds * 1000;
-    await this.ctx.storage.setAlarm(Date.now() + delay);
-    this.reconnectSeconds = Math.min(60, Math.max(5, this.reconnectSeconds * 2));
+    const delay = delayMs ?? this.reconnectSeconds * 1000;
+    const added = await this.scheduleGatewayTask("reconnect", Date.now() + delay, true);
+    if (added) this.reconnectSeconds = Math.min(60, Math.max(5, this.reconnectSeconds * 2));
   }
   async alarm() {
     if (this.stopping) return;
-    if ((await this.ctx.storage.get("moderation_commands_version")) !== "texas-state-roleplay-commands-v3") {
-      try { const registration = await registerCommands(this.env); if (registration.ok) { await this.ctx.storage.put("moderation_commands_registered", true); await this.ctx.storage.put("moderation_commands_version", "manchester-roleplay-commands-v2"); } } catch (error) { console.error("Moderation command registration:", error.message); }
+    if ((await this.ctx.storage.get("moderation_commands_version")) !== COMMANDS_VERSION) {
+      try {
+        const registration = await registerCommands(this.env);
+        if (registration.ok) {
+          await this.ctx.storage.put("moderation_commands_registered", true);
+          await this.ctx.storage.put("moderation_commands_version", COMMANDS_VERSION);
+        }
+      } catch (error) { console.error("Moderation command registration:", error.message); }
     }
-    if (this.socket && this.socket.readyState === WebSocket.CONNECTING) {
-      await this.ctx.storage.setAlarm(Date.now() + 15000);
-      return;
-    }
-    if (!this.socket || this.socket.readyState !== WebSocket.OPEN) {
+
+    const dueTasks = new Set(await this.takeDueGatewayTasks());
+    if (dueTasks.has("reconnect") && (!this.socket || this.socket.readyState === WebSocket.CLOSED)) {
       await this.connect();
-      return;
     }
-    const currentStatus = await this.ctx.storage.get("gateway_status") || {};
-    if (currentStatus.status === "recovering") await this.runRecoveryScan("Gateway watchdog alarm");
-    if (this.heartbeatInterval > 0) {
-      if (this.awaitingAck) {
-        try { this.socket.close(4000, "Heartbeat acknowledgement timed out"); } catch {}
-        this.socket = null;
-        await this.state("reconnecting", { detail: "Heartbeat acknowledgement timed out" });
+
+    if (dueTasks.has("connect_timeout")) {
+      if (this.socket && this.socket.readyState === WebSocket.CONNECTING) {
+        await this.scheduleGatewayTask("connect_timeout", Date.now() + 15000);
+      } else if (this.socket && this.socket.readyState === WebSocket.OPEN && !this.heartbeatInterval) {
+        try { this.socket.close(4000, "Discord Hello timed out"); } catch {}
+      } else if (!this.socket || this.socket.readyState === WebSocket.CLOSED) {
         await this.scheduleReconnect();
-        return;
       }
-      this.sendHeartbeat();
-      await this.ctx.storage.setAlarm(Date.now() + this.heartbeatInterval);
-    } else {
-      await this.ctx.storage.setAlarm(Date.now() + 15000);
+    }
+
+    if (dueTasks.has("heartbeat") && this.heartbeatInterval > 0 && this.socket?.readyState === WebSocket.OPEN) {
+      if (this.awaitingAck) {
+        await this.state("reconnecting", { detail: "Discord heartbeat acknowledgement was not received before the next heartbeat deadline" });
+        try { this.socket.close(4000, "Heartbeat acknowledgement timed out"); } catch {}
+      } else if (this.sendHeartbeat()) {
+        await this.scheduleGatewayTask("heartbeat", Date.now() + this.heartbeatInterval);
+      }
+    }
+
+    if (dueTasks.has("recovery") && this.socket?.readyState === WebSocket.OPEN) {
+      const currentStatus = await this.ctx.storage.get("gateway_status") || {};
+      if (currentStatus.status === "recovering") await this.runRecoveryScan("Gateway recovery alarm");
     }
   }
 }
