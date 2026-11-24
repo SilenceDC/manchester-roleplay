@@ -1215,13 +1215,11 @@ export class ManchesterGateway extends DurableObject {
       if (this.resumeGatewayUrl) await this.ctx.storage.put("discord_resume_gateway_url", this.resumeGatewayUrl);
       this.reconnectSeconds = 5;
       await this.clearGatewayTask("reconnect");
-      await this.scheduleGatewayTask("heartbeat", Date.now() + this.heartbeatInterval);
       await this.state("recovering", { detail: "Gateway READY; reconciling recent messages and audit logs", user: packet.d.user?.username || "Texas State Roleplay bot", user_id: packet.d.user?.id });
       await this.runRecoveryScan("fresh Gateway session");
     } else if (packet.op === 0 && packet.t === "RESUMED") {
       this.reconnectSeconds = 5;
       await this.clearGatewayTask("reconnect");
-      await this.scheduleGatewayTask("heartbeat", Date.now() + this.heartbeatInterval);
       await this.state("recovering", { detail: "Gateway session resumed; reconciling missed events" });
       await this.runRecoveryScan("resumed Gateway session");
     } else if (packet.op === 0 && packet.t === "INTERACTION_CREATE") {
