@@ -1414,6 +1414,12 @@ export class ManchesterGateway extends DurableObject {
       }
     }
 
+    // A deployment or runtime eviction can leave persisted tasks but no live in-memory socket.
+    // Recover from that state even if the old instance's close callback never ran.
+    if ((!this.socket || this.socket.readyState === WebSocket.CLOSED) && !dueTasks.has("reconnect")) {
+      await this.scheduleReconnect();
+    }
+
     if (dueTasks.has("heartbeat") && this.heartbeatInterval > 0 && this.socket?.readyState === WebSocket.OPEN) {
       if (this.awaitingAck) {
         await this.state("reconnecting", { detail: "Discord heartbeat acknowledgement was not received before the next heartbeat deadline" });
