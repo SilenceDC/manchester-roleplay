@@ -462,7 +462,7 @@ export default {
       if (url.pathname === "/workflow/record" && request.method === "POST") {
         const item = await readBody(8192), id = text(item.id || crypto.randomUUID(),100), type = text(item.type,32).toLowerCase();
         if (!id || !["promotion","infraction","warning","strike"].includes(type) || !text(item.player,80).trim() || !text(item.reason,1500).trim()) return reply({ok:false,error:"Record type, player and reason are required."},400);
-        const record = {id,type,player:text(item.player,80),reason:text(item.reason,1500),staff:text(item.staff,100),staffId:text(item.staffId,32),createdAt:iso(item.createdAt),evidence:text(item.evidence,1500)};
+        const record = {id,type,player:text(item.player,80),reason:text(item.reason,1500),appealable:type==="warning"?item.appealable===true:null,staff:text(item.staff,100),staffId:text(item.staffId,32),createdAt:iso(item.createdAt),evidence:text(item.evidence,1500)};
         await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at")
           .bind("workflow_record:" + id,JSON.stringify(record),record.createdAt).run();
         return reply({ok:true,record});
