@@ -172,8 +172,23 @@ async function moderationRun(env, interaction, name) {
  }
  const gate=await dataRequest(env, "/modgate",{method:"POST"}); if(!gate.ok){const d=await gate.json();return reply(d.message||"Please wait before sending another ER:LC command.");}
  let ok=false, result=""; try { const key=String(env.ERLC_SERVER_KEY||"").trim(); if(!key) throw new Error("ER:LC server key is not configured."); const res=await fetch("https://api.erlc.gg/v2/server/command",{method:"POST",headers:{"server-key":key,...(String(env.ERLC_GLOBAL_API_KEY||"").trim()?{Authorization:String(env.ERLC_GLOBAL_API_KEY).trim()}:{}),"content-type":"application/json"},body:JSON.stringify({command})}); const body=await res.text(); let data={}; try{data=JSON.parse(body)}catch{} if(!res.ok||data.success===false||data.Success===false) throw new Error(String(data.message||data.Message||"ER:LC rejected the command (HTTP "+res.status+")").slice(0,200)); ok=true; result=String(data.message||data.Message||"ER:LC accepted the command."); } catch(e){result=String(e.message||e)}
- const audit=await dataRequest(env, "/modlog-write",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({at:new Date().toISOString(),action:name,player,reason,staff:user.username||user.global_name||"Unknown",discordId:user.id||"",command,ok,result})});
- if(!audit.ok) return reply((ok?"ER:LC accepted the action, but ":"")+"the audit log could not be saved. Contact Ownership."); await sendModerationLog(env,"**"+name.toUpperCase()+" — "+(ok?"SUCCESS":"FAILED")+"**\nPlayer: "+player+"\nStaff: "+(user.global_name||user.username||"Unknown")+"\nReason: "+reason+"\nResult: "+result); if(!ok) return reply("ER:LC action failed: "+result); return reply("ER:LC accepted "+name+" for "+player+". Reason: "+reason+". Recorded in moderation logs.");
+ await sendModerationLog(env,"**"+name.toUpperCase()+" — "+(ok?"SUCCESS":"FAILED")+"**\nPlayer: "+player+"\nStaff: "+(user.global_name||user.username||"Unknown")+"\nReason: "+reason+"\nResult: "+result); if(!ok) return reply("ER:LC action failed: "+result); return reply("ER:LC accepted "+name+" for "+player+". Reason: "+reason+". Recorded in moderation logs.");
+}
+
+async function auditedModerationRun(env, interaction, name, source) {
+  const user=interaction.member?.user||interaction.user||{};
+  const options=Object.fromEntries((interaction.data?.options||[]).map(item=>[item.name,item.value]));
+  const attempt=name==="erlc-command"?String(options.command||""):[options.player,options.reason].filter(Boolean).join(" — ");
+  let response, failure="";
+  try { response=await moderationRun(env,interaction,name); }
+  catch(error){failure=String(error?.message||error).slice(0,500);response={type:4,data:{content:"Moderation command failed: "+failure,flags:64,allowed_mentions:{parse:[]}}};}
+  const message=String(response?.data?.content||"No response");
+  const success=message.startsWith("ER:LC accepted");
+  const outcome=failure||message;
+  await sendModerationLog(env,"**"+name.toUpperCase()+" — "+(success?"SUCCESS":"ATTEMPT / FAILED")+"**\nSource: "+source+"\nStaff: "+(user.global_name||user.username||"Unknown")+" ("+(user.id||"unknown")+")\nAttempt: "+(attempt||"No arguments")+"\nOutcome: "+outcome);
+  try { await dataRequest(env,"/modlog-write",{method:"POST",headers:{"content-type":"application/json"},body:JSON.stringify({at:new Date().toISOString(),action:name,player:String(options.player||"—"),reason:String(options.reason||""),staff:user.global_name||user.username||"Unknown",discordId:user.id||"",command:name==="erlc-command"?String(options.command||""):"",source,ok:success,result:outcome})}); }
+  catch(error){console.error("Moderation audit database write failed; Discord log was attempted independently:",error.message);}
+  return response;
 }
 
 async function banBoloInteraction(env, interaction) {
@@ -611,57 +626,60 @@ async function staffRecordCommand(env,interaction) {
   return workflowReply(type.charAt(0).toUpperCase()+type.slice(1)+" record " + id + " was saved.");
 }
 async function archiveInGameLogs(env,sessionId) {
-  const data = await erlcServerData(env,["CommandLogs","ModCalls","JoinLogs","KillLogs"]);
-  const storedLogs = await workflowData(env,"/workflow/modlogs-export","GET");
-  const commandLogs = Array.isArray(data.CommandLogs) ? data.CommandLogs : [];
-  const modCalls = Array.isArray(data.ModCalls) ? data.ModCalls : [];
-  const joinLogs = Array.isArray(data.JoinLogs) ? data.JoinLogs : [];
-  const killLogs = Array.isArray(data.KillLogs) ? data.KillLogs : [];
-  const websiteModerationLogs = Array.isArray(storedLogs.logs) ? storedLogs.logs : [];
-  const websiteLogIds = Array.isArray(storedLogs.ids) ? storedLogs.ids : [];
-  const archive = {community:"Texas State Roleplay",capturedAt:new Date().toISOString(),sessionId:sessionId||"unspecified",server:data.Name||"Texas State Roleplay",commandLogs,modCalls,joinLogs,killLogs,websiteModerationLogs};
-  const serialized = JSON.stringify(archive,null,2);
-  if (serialized.length > 7500000) throw new Error("The combined ER:LC and website moderation-log archive is too large for one Discord file. Reduce the log range before shutdown and retry.");
-  const counts = {commandLogs:commandLogs.length,modCalls:modCalls.length,joinLogs:joinLogs.length,killLogs:killLogs.length,websiteModerationLogs:websiteModerationLogs.length};
-  const message = await discordFileMessage(env,CHANNELS.logArchive,{embeds:[{title:"ER:LC SESSION LOG ARCHIVE",description:"ER:LC logs and website moderation records captured before session shutdown.",color:5793266,fields:[
-    {name:"Session",value:String(sessionId||"Unspecified")},
-    {name:"Command logs",value:String(counts.commandLogs),inline:true},
-    {name:"Moderator calls",value:String(counts.modCalls),inline:true},
-    {name:"Join/leave logs",value:String(counts.joinLogs),inline:true},
-    {name:"Kill logs",value:String(counts.killLogs),inline:true},
-    {name:"Website moderation records",value:String(counts.websiteModerationLogs),inline:true}
-  ],timestamp:archive.capturedAt,footer:{text:"Texas State Roleplay • Database Storage"}}],allowed_mentions:{parse:[]}},"erlc-session-" + slug(sessionId||"session") + "-logs.json",serialized,"application/json");
-  let websiteLogsDeleted = 0, cleanupError = "";
-  if (websiteLogIds.length) {
-    try {
-      const cleared = await workflowData(env,"/workflow/modlogs-clear","POST",{ids:websiteLogIds});
-      websiteLogsDeleted = Number(cleared.deleted || 0);
-    } catch (error) {
-      cleanupError = String(error.message || error).slice(0,300);
-      console.error("Discord archive was saved, but website moderation-log cleanup failed:",cleanupError);
-    }
-  }
-  try { await workflowData(env,"/workflow/archive","POST",{id:"archive-" + sessionId + "-" + Date.now(),createdAt:archive.capturedAt,sessionId,channelId:CHANNELS.logArchive,commandLogCount:counts.commandLogs,modCallCount:counts.modCalls,joinLogCount:counts.joinLogs,killLogCount:counts.killLogs,websiteModerationLogCount:counts.websiteModerationLogs,websiteModerationLogsDeleted:websiteLogsDeleted,discordMessageId:message.id,status:cleanupError?"archived_cleanup_failed":"archived"}); } catch (error) { console.error("In-game archive metadata could not be saved:",error.message); }
-  return {counts,websiteLogsDeleted,cleanupError,messageId:message.id};
+  let erlc={},erlcError="";
+  try{erlc=await erlcServerData(env,["CommandLogs","ModCalls","JoinLogs","KillLogs"]);}catch(error){erlcError=String(error?.message||error).slice(0,500);}
+  const storedLogs=await workflowData(env,"/workflow/modlogs-export","GET");
+  const commandLogs=Array.isArray(erlc.CommandLogs)?erlc.CommandLogs:[],modCalls=Array.isArray(erlc.ModCalls)?erlc.ModCalls:[],joinLogs=Array.isArray(erlc.JoinLogs)?erlc.JoinLogs:[],killLogs=Array.isArray(erlc.KillLogs)?erlc.KillLogs:[];
+  const websiteModerationLogs=Array.isArray(storedLogs.logs)?storedLogs.logs:[],websiteLogIds=Array.isArray(storedLogs.ids)?storedLogs.ids:[];
+  const activeSessionId=String(storedLogs.sessionId||sessionId||"");
+  const capturedAt=new Date().toISOString();
+  const archive={community:"Texas State Roleplay",capturedAt,sessionId:activeSessionId||"unspecified",server:erlc.Name||"Texas State Roleplay",erlcLogsAvailable:!erlcError,erlcError:erlcError||null,commandLogs,modCalls,joinLogs,killLogs,websiteModerationLogs};
+  const serialized=JSON.stringify(archive,null,2);
+  if(serialized.length>7500000)throw new Error("The combined session archive is too large for one Discord file.");
+  const counts={commandLogs:commandLogs.length,modCalls:modCalls.length,joinLogs:joinLogs.length,killLogs:killLogs.length,websiteModerationLogs:websiteModerationLogs.length};
+  const message=await discordFileMessage(env,CHANNELS.logArchive,{embeds:[{title:"ER:LC SESSION LOG ARCHIVE",description:erlcError?"ER:LC was unavailable at shutdown. Available website audit records have still been archived.":"ER:LC logs and website moderation records captured before shutdown.",color:erlcError?16763904:5793266,fields:[
+    {name:"Session",value:String(activeSessionId||"Unspecified")},{name:"ER:LC API",value:erlcError?"Unavailable — see archive file":"Available",inline:true},
+    {name:"Command logs",value:String(counts.commandLogs),inline:true},{name:"Moderator calls",value:String(counts.modCalls),inline:true},{name:"Join/leave logs",value:String(counts.joinLogs),inline:true},{name:"Kill logs",value:String(counts.killLogs),inline:true},{name:"Website moderation records",value:String(counts.websiteModerationLogs),inline:true}
+  ],timestamp:capturedAt,footer:{text:"Texas State Roleplay • Permanent Session Archive"}}],allowed_mentions:{parse:[]}},"texasrp-session-"+slug(activeSessionId||"session")+"-logs.json",serialized,"application/json");
+  let websiteLogsDeleted=0,cleanupError="";
+  if(websiteLogIds.length){try{const cleared=await workflowData(env,"/workflow/modlogs-clear","POST",{ids:websiteLogIds});websiteLogsDeleted=Number(cleared.deleted||0);}catch(error){cleanupError=String(error.message||error).slice(0,300);console.error("Discord archive saved but website log cleanup failed:",cleanupError);}}
+  if(activeSessionId){try{await workflowData(env,"/workflow/session-end","POST",{sessionId:activeSessionId,endedAt:capturedAt,discordMessageId:message.id});}catch(error){cleanupError=[cleanupError,String(error.message||error).slice(0,250)].filter(Boolean).join("; ");console.error("Discord archive saved but session state could not be ended:",error.message);}}
+  try{await workflowData(env,"/workflow/archive","POST",{id:"archive-"+slug(activeSessionId||"session")+"-"+Date.now(),createdAt:capturedAt,sessionId:activeSessionId,channelId:CHANNELS.logArchive,commandLogCount:counts.commandLogs,modCallCount:counts.modCalls,killLogCount:counts.killLogs,joinLogCount:counts.joinLogs,websiteModerationLogCount:counts.websiteModerationLogs,websiteModerationLogsDeleted:websiteLogsDeleted,discordMessageId:message.id,status:cleanupError?"archived_cleanup_failed":"archived",erlcLogsAvailable:!erlcError});}catch(error){console.error("Archive metadata could not be saved:",error.message);}
+  return{counts,websiteLogsDeleted,cleanupError,messageId:message.id,erlcLogsAvailable:!erlcError,erlcError};
 }
 async function serverSessionCommand(env,interaction) {
-  const state = interactionRoleState(interaction);
-  if (!(state.owner || state.admin || state.ia)) return workflowReply("Only Admin, Internal Affairs or Ownership can post server session updates.");
-  const action = interaction.data?.options?.[0]?.name || "";
-  if (action === "invite") return workflowReply("Join Texas State Roleplay: " + INVITE);
-  const labels = {"start-up":"SESSION STARTED","shutdown":"SESSION SHUTDOWN","low-on-players":"SESSION LOW ON PLAYERS"};
-  if (!labels[action]) return workflowReply("Choose start-up, shutdown or low-on-players.");
-  if (!CHANNELS.sessions) return workflowReply("The session announcement channel has not been configured yet. Send Ownership the channel ID for session embeds.");
-  const user = interactionUser(interaction), now = new Date().toISOString();
-  const description = action === "start-up" ? "A new Texas State Roleplay ER:LC session is now starting. Join the server and follow all session instructions."
-    : action === "shutdown" ? "The Texas State Roleplay ER:LC session has been shut down."
-    : "The server is currently low on players. More community members are needed to keep the session active.";
-  const color = action === "start-up" ? 5763719 : action === "shutdown" ? 15548997 : 16763904;
-  try {
+  const state=interactionRoleState(interaction);
+  if(!(state.owner||state.admin||state.ia))return workflowReply("Only Admin, Internal Affairs or Ownership can post server session updates.");
+  const action=interaction.data?.options?.[0]?.name||"";
+  if(action==="invite")return workflowReply("Join Texas State Roleplay: "+INVITE);
+  const labels={"start-up":"SESSION STARTED","shutdown":"SESSION SHUTDOWN","low-on-players":"SESSION LOW ON PLAYERS"};
+  if(!labels[action])return workflowReply("Choose start-up, shutdown or low-on-players.");
+  const user=interactionUser(interaction),now=new Date().toISOString();
+  let sessionId="";
+  if(action==="start-up"){
+    sessionId="session-"+crypto.randomUUID();
+    try{await workflowData(env,"/workflow/session-start","POST",{sessionId,startedAt:now,hostId:user.id||"",host:user.global_name||user.username||"Unknown"});}
+    catch(error){return workflowReply("Could not start website session logging: "+error.message);}
+  }
+  if(action==="shutdown"){
+    try{
+      const current=await workflowData(env,"/workflow/session-status","GET");
+      if(!current.activeSessionId)return workflowReply("There is no active session to shut down. Start a session first.");
+      sessionId=current.activeSessionId;
+      await archiveInGameLogs(env,sessionId);
+    }catch(error){return workflowReply("Shutdown was not completed because the Discord archive failed: "+String(error.message||error).slice(0,450)+". The active session remains open so you can retry.");}
+  }
+  if(!CHANNELS.sessions)return workflowReply("The session announcement channel has not been configured yet. Send Ownership the channel ID for session embeds.");
+  const description=action==="start-up"?"A new Texas State Roleplay ER:LC session is now starting. Join the server and follow all session instructions.":action==="shutdown"?"The Texas State Roleplay ER:LC session has been shut down. The permanent session archive was saved to Discord.":"The server is currently low on players. More community members are needed to keep the session active.";
+  const color=action==="start-up"?5763719:action==="shutdown"?15548997:16763904;
+  try{
     await clearPreviousSessionStatusMessages(env,CHANNELS.sessions);
-    await discordChannelMessage(env,CHANNELS.sessions,{embeds:[{title:labels[action],description,color,fields:[{name:"Session host",value:"<@" + user.id + ">"},{name:"Time",value:now}],timestamp:now,footer:{text:"Texas State Roleplay • Server Sessions"}}],allowed_mentions:{users:[user.id],parse:[]}});
-  } catch (error) { return workflowReply("Could not update the session channel: " + error.message); }
-  return workflowReply("Updated the session channel with **" + labels[action] + "**. The previous bot session-status embed was removed.");
+    await discordChannelMessage(env,CHANNELS.sessions,{embeds:[{title:labels[action],description,color,fields:[{name:"Session host",value:"<@"+user.id+">"},{name:"Time",value:now}],timestamp:now,footer:{text:"Texas State Roleplay • Server Sessions"}}],allowed_mentions:{users:[user.id],parse:[]}});
+  }catch(error){
+    if(action==="start-up"&&sessionId){try{await workflowData(env,"/workflow/session-end","POST",{sessionId,endedAt:new Date().toISOString(),discordMessageId:""});}catch{}}
+    return workflowReply("Could not update the session channel: "+error.message);
+  }
+  return workflowReply("Updated the session channel with **"+labels[action]+"**."+(action==="start-up"?" Website session logging is now active.":action==="shutdown"?" Discord archive saved; website session logs are cleared.":""));
 }
 async function workflowCommand(env,interaction,name) {
   if (name === "server") return serverSessionCommand(env,interaction);
@@ -895,7 +913,7 @@ export default {
         if(action!=="kick"&&!canManage) return json({ok:false,error:"Admin or Ownership role is required for this action."},403);
         const options=action==="erlc-command"?[{name:"command",value:String(body.command||"")}]:[{name:"player",value:String(body.player||"")},{name:"reason",value:String(body.reason||"")}];
         const interaction={member:{roles,permissions:"0",user:{id:user.id,username:user.username,global_name:user.global_name}},user,data:{options}};
-        const response=await moderationRun(env,interaction,action), message=String(response?.data?.content||"Moderation action returned no response.");
+        const response=await auditedModerationRun(env,interaction,action,"Website"), message=String(response?.data?.content||"Moderation action returned no response.");
         const success=message.startsWith("ER:LC accepted");
         return json({ok:success,message},success?200:400);
       }
@@ -915,7 +933,7 @@ export default {
       }
       return json({ type: 1 });
     }
-    if (interaction.type === 2) { const name = interaction.data?.name || ""; if (name === "ban-bolo") return json(await banBoloInteraction(env,interaction)); if (["kick","ban","unban","erlc-command","modlogs"].includes(name)) return json(await moderationRun(env,interaction,name)); if (["server","ticket-panel","close-ticket","fastpass-panel","fastpass-delete","staff-record"].includes(name)) { const invite=name==="server"&&interaction.data?.options?.[0]?.name==="invite"; const task=()=>workflowCommand(env,interaction,name); return invite?json(await task()):json(deferWorkflowResponse(env,interaction,p=>ctx.waitUntil(p),task)); } return json(["erlc","players","staff","queue","calls","vehicles"].includes(name) ? await erlcInteraction(name, env) : commandResponse(name)); }
+    if (interaction.type === 2) { const name = interaction.data?.name || ""; if (name === "ban-bolo") return json(await banBoloInteraction(env,interaction)); if (["kick","ban","unban","erlc-command","modlogs"].includes(name)) return json(await auditedModerationRun(env,interaction,name,"Discord")); if (["server","ticket-panel","close-ticket","fastpass-panel","fastpass-delete","staff-record"].includes(name)) { const invite=name==="server"&&interaction.data?.options?.[0]?.name==="invite"; const task=()=>workflowCommand(env,interaction,name); return invite?json(await task()):json(deferWorkflowResponse(env,interaction,p=>ctx.waitUntil(p),task)); } return json(["erlc","players","staff","queue","calls","vehicles"].includes(name) ? await erlcInteraction(name, env) : commandResponse(name)); }
     if (interaction.type === 3) { const customId=String(interaction.data?.custom_id||""); if(customId.startsWith("bolo:")) return json(await banBoloReviewInteraction(env,interaction)); if(customId==="fastpass:open") return json(await fastpassComponent(env,interaction)); return json(deferWorkflowResponse(env,interaction,p=>ctx.waitUntil(p),()=>workflowComponent(env,interaction))); }
     if (interaction.type === 5) return json(deferWorkflowResponse(env,interaction,p=>ctx.waitUntil(p),()=>fastpassModal(env,interaction)));
     return json({ type: 4, data: { content: "This interaction type is not supported." } });
