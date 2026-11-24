@@ -506,7 +506,7 @@ async function ticketComponent(env,interaction) {
   return workflowReply("Unknown ticket action.");
 }
 async function postFastpassPanel(env) {
-  return discordChannelMessage(env,CHANNELS.fastpassPanel,{embeds:[{title:"Texas State Roleplay | Fast Pass Application",description:"Use the button below to apply for a Fast Pass.\n\nYou must provide:\n• Your previous role(s) and the communities where you held them.\n• Links to proof of those roles (screenshots or other evidence).\n• A valid invite to the server where you currently hold or held those roles.\n\nApplications are reviewed by authorized staff. Submitting false evidence may result in denial.",color:5793266,footer:{text:"Texas State Roleplay • Fast Pass"}}],components:[{type:1,components:[{type:2,style:1,label:"Apply for Fast Pass",custom_id:"fastpass:open"}]}],allowed_mentions:{parse:[]}});
+  return discordChannelMessage(env,CHANNELS.fastpassPanel,{embeds:[{title:"Texas State Roleplay | Fast Pass Application",description:"Use the button below to apply for a Fast Pass.\n\nYou must provide:\n• Your previous role(s) and the communities in which you held them.\n• Links to proof of those roles (screenshots or other evidence).\n• A valid invite to the server where you currently hold or previously held those roles.\n\nApplications are assessed by authorised staff. The submission of false evidence will result in rejection.",color:5793266,footer:{text:"Texas State Roleplay • Fast Pass"}}],components:[{type:1,components:[{type:2,style:1,label:"Apply for Fast Pass",custom_id:"fastpass:open"}]}],allowed_mentions:{parse:[]}});
 }
 function modalValue(interaction,customId) {
   const visit = components => {
