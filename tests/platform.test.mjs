@@ -376,11 +376,36 @@ test("shutdown log archive exports website moderation logs and only clears Turso
 });
 
 
-test("session announcement and database archive embeds share the configured session channel", () => {
+test("session lifecycle gates website logs and archives before ending the session", () => {
   assert.ok(bot.includes('sessions:"1574355077861351454"'));
   assert.ok(bot.includes('logArchive:"1574355077861351454"'));
-  const shutdown = bot.indexOf('if (action === "shutdown")');
-  const channelGuard = bot.indexOf('if (!CHANNELS.sessions) return workflowReply', shutdown);
-  const archive = bot.indexOf("archiveInGameLogs(env,sessionId)", shutdown);
-  assert.ok(shutdown >= 0 && archive > shutdown && channelGuard > archive, "shutdown archive should still run before any optional session-channel check");
+  assert.ok(data.includes("/workflow/session-start"));
+  assert.ok(data.includes("/workflow/session-status"));
+  assert.ok(data.includes("/workflow/session-end"));
+  assert.ok(data.includes('if (!active?.value) return reply({logs:[],active:false})'));
+  const shutdown = bot.indexOf('if(action==="shutdown")');
+  const archive = bot.indexOf("await archiveInGameLogs(env,sessionId)", shutdown);
+  const upload = bot.indexOf("const message = await discordFileMessage(env,CHANNELS.logArchive", bot.indexOf("async function archiveInGameLogs"));
+  const clear = bot.indexOf('workflowData(env,"/workflow/modlogs-clear","POST"', bot.indexOf("async function archiveInGameLogs"));
+  const end = bot.indexOf('workflowData(env,"/workflow/session-end","POST"', bot.indexOf("async function archiveInGameLogs"));
+  assert.ok(shutdown >= 0 && archive > shutdown);
+  assert.ok(upload > 0 && clear > upload && end > clear, "archive upload must precede session cleanup and session end");
+});
+
+test("Discord and website moderation attempts are audited independently of database storage", () => {
+  assert.ok(bot.includes("async function auditedModerationRun"));
+  assert.ok(bot.includes('auditedModerationRun(env,interaction,name,"Discord")'));
+  assert.ok(bot.includes('auditedModerationRun(env,interaction,action,"Website")'));
+  assert.ok(bot.includes("await sendModerationLog(env,"));
+  assert.ok(bot.includes("Moderation audit database write failed; Discord log was attempted independently:"));
+});
+
+test("ER:LC API outage does not prevent the website session archive from reaching Discord", () => {
+  const start = bot.indexOf("async function archiveInGameLogs");
+  const end = bot.indexOf("\nasync function serverSessionCommand", start);
+  const archive = bot.slice(start,end);
+  assert.ok(archive.includes("catch(error){erlcError="));
+  assert.ok(archive.includes("erlcLogsAvailable:!erlcError"));
+  assert.ok(archive.includes("websiteModerationLogs"));
+  assert.ok(archive.indexOf("const message = await discordFileMessage") > archive.indexOf("const storedLogs=await workflowData"));
 });
