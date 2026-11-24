@@ -316,6 +316,10 @@ test("Texas State Roleplay workflow commands are registered", () => {
   assert.equal(server.options.map(option => option.name).join(","), "start-up,shutdown,low-on-players,invite");
   const records = slashCommands.find(command => command.name === "staff-record");
   assert.equal(records.options.map(option => option.name).join(","), "promotion,infraction,warning,strike");
+  const warning = records.options.find(option => option.name === "warning");
+  const appealability = warning.options.find(option => option.name === "appealable");
+  assert.equal(appealability.required, true);
+  assert.deepEqual(appealability.choices.map(choice => choice.value), ["yes","no"]);
 });
 
 test("ticket, Fast Pass, session and archive workflow routes are present", () => {
