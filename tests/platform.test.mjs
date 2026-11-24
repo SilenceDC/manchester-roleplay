@@ -154,8 +154,23 @@ test("Gateway watchdog skips expensive scans while healthy", () => {
 
 test("Gateway event failures schedule reconciliation instead of leaving a stuck error state", () => {
   assert.match(bot, /Gateway event processing failed; reconciliation scheduled/);
-  assert.match(bot, /this\.ctx\.storage\.setAlarm\(Date\.now\(\) \+ 10000\)/);
+  assert.match(bot, /scheduleGatewayTask\("recovery", Date\.now\(\) \+ 10000\)/);
   assert.match(bot, /Discord Gateway WebSocket error; reconnect scheduled/);
+});
+
+test("Gateway heartbeats and recovery retries share a single non-overwriting alarm queue", () => {
+  const start = bot.indexOf("function nextGatewayAlarm");
+  const end = bot.indexOf("const COMMANDS_VERSION", start);
+  assert.ok(start >= 0 && end > start, "Gateway alarm selector must exist");
+  const nextAlarm = vm.runInNewContext(bot.slice(start, end) + "; nextGatewayAlarm");
+  assert.equal(nextAlarm({heartbeat:45000,recovery:10000,reconnect:5000}), 5000);
+  assert.equal(nextAlarm({heartbeat:45000,recovery:10000}), 10000);
+  assert.equal(nextAlarm({}), null);
+  assert.match(bot, /async takeDueGatewayTasks/);
+  assert.match(bot, /async mutateGatewayTasks/);
+  assert.match(bot, /dueTasks\.has\("heartbeat"\)[\s\S]*?awaitingAck/);
+  assert.doesNotMatch(bot, /this\.ctx\.storage\.setAlarm\(Date\.now\(\) \+ this\.heartbeatInterval\)/);
+  assert.match(bot, /const COMMANDS_VERSION = "texas-state-roleplay-commands-v4"/);
 });
 
 test("recovery scans are deliberately bounded into small resumable batches", () => {
@@ -222,7 +237,7 @@ test("the bot returns a valid immediate /ping response and Texas descriptions", 
   assert.equal(response.type, 4);
   assert.match(response.data.content, /Pong! Texas State Roleplay bot is online/);
   assert.match(slashCommands.find(command => command.name === "ping").description, /Texas State Roleplay/);
-  assert.match(bot, /moderation_commands_version.*"manchester-roleplay-commands-v2"/);
+  assert.match(bot, /moderation_commands_version.*COMMANDS_VERSION/);
 });
 
 
