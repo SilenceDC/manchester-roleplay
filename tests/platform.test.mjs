@@ -319,7 +319,7 @@ test("Texas State Roleplay workflow commands are registered", () => {
   const warning = records.options.find(option => option.name === "warning");
   const appealability = warning.options.find(option => option.name === "appealable");
   assert.equal(appealability.required, true);
-  assert.deepEqual(appealability.choices.map(choice => choice.value), ["yes","no"]);
+  assert.equal(Array.from(appealability.choices, choice => choice.value).join(","), "yes,no");
 });
 
 test("ticket, Fast Pass, session and archive workflow routes are present", () => {
