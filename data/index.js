@@ -373,7 +373,7 @@ export default {
         const ticketRow = await db.prepare("SELECT value FROM app_state WHERE key=?").bind("workflow_ticket:" + id).first();
         const ticket = parse(ticketRow?.value,null);
         if (!ticket) return reply({ok:false,error:"Ticket not found."},404);
-        const cooldownMs = ticket.category === "ownership" ? 1800000 : 300000;
+        const cooldownMs = ticket.category === "ownership" ? 7200000 : 1800000;
         const cooldownSeconds = cooldownMs / 1000;
         const key = "workflow_ticket_ping:" + id;
         const allowed = await db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES(?,?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at WHERE CAST(app_state.value AS INTEGER)<=CAST(excluded.value AS INTEGER)-? RETURNING value")
