@@ -531,37 +531,64 @@ export default {
         await writeWarning(db, item);
         return reply({ ok: true });
       }
+      if (url.pathname === "/workflow/session-status" && request.method === "GET") {
+        const active = await db.prepare("SELECT value FROM app_state WHERE key='active_session_id'").first();
+        const started = await db.prepare("SELECT value FROM app_state WHERE key='active_session_started_at'").first();
+        return reply({ok:true,activeSessionId:active?.value || "",startedAt:started?.value || ""});
+      }
+      if (url.pathname === "/workflow/session-start" && request.method === "POST") {
+        const item = await readBody(8192), sessionId = requireId(item.sessionId), startedAt = iso(item.startedAt);
+        const current = await db.prepare("SELECT value FROM app_state WHERE key='active_session_id'").first();
+        if (current?.value) return reply({ok:false,error:"A session is already active.",activeSessionId:current.value},409);
+        await db.batch([
+          db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES('active_session_id',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(sessionId,startedAt),
+          db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES('active_session_started_at',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(startedAt,startedAt)
+        ]);
+        invalidateCachedDataResponses(["/modlogs"]);
+        return reply({ok:true,sessionId,startedAt});
+      }
+      if (url.pathname === "/workflow/session-end" && request.method === "POST") {
+        const item = await readBody(8192), sessionId = requireId(item.sessionId), endedAt = iso(item.endedAt);
+        const current = await db.prepare("SELECT value FROM app_state WHERE key='active_session_id'").first();
+        if (current?.value !== sessionId) return reply({ok:false,error:"The supplied session is not the active session."},409);
+        await db.batch([
+          db.prepare("UPDATE app_state SET value='',updated_at=? WHERE key='active_session_id'").bind(endedAt),
+          db.prepare("INSERT INTO app_state(key,value,updated_at) VALUES('last_session_archive',?,?) ON CONFLICT(key) DO UPDATE SET value=excluded.value,updated_at=excluded.updated_at").bind(JSON.stringify({sessionId,endedAt,discordMessageId:text(item.discordMessageId,100)}),endedAt)
+        ]);
+        invalidateCachedDataResponses(["/modlogs"]);
+        return reply({ok:true,sessionId,endedAt});
+      }
       if (url.pathname === "/modlog-write" && request.method === "POST") {
         const item = await readBody(16384);
+        const active = await db.prepare("SELECT value FROM app_state WHERE key='active_session_id'").first();
+        if (!active?.value) return reply({ok:true,stored:false,reason:"No active session"});
+        item.sessionId = active.value;
         await writeLog(db, item);
-        return reply({ ok: true });
+        return reply({ok:true,stored:true,sessionId:active.value});
       }
-
       if (url.pathname === "/workflow/modlogs-export" && request.method === "GET") {
+        const active = await db.prepare("SELECT value FROM app_state WHERE key='active_session_id'").first();
+        if (!active?.value) return reply({ok:true,logs:[],ids:[],sessionId:""});
         const result = await db.prepare("SELECT id,payload_json FROM moderation_logs ORDER BY occurred_at ASC,id ASC").all();
-        const logs = (result.results || []).map(row => {
-          const payload = rowPayload(row);
-          return {...payload,id:payload.id || row.id};
-        });
-        return reply({ok:true,logs,ids:logs.map(item=>item.id)});
+        const logs = (result.results || []).map(row => { const payload=rowPayload(row); return {...payload,id:payload.id||row.id}; }).filter(item=>item.sessionId===active.value);
+        return reply({ok:true,logs,ids:logs.map(item=>item.id),sessionId:active.value});
       }
       if (url.pathname === "/workflow/modlogs-clear" && request.method === "POST") {
-        const item = await readBody(131072);
-        const ids = [...new Set((Array.isArray(item.ids) ? item.ids : []).map(value=>text(value,100).trim()).filter(Boolean))].slice(0,5000);
-        if (!ids.length) return reply({ok:true,deleted:0});
-        let deleted = 0;
-        for (let offset=0; offset<ids.length; offset+=100) {
-          const chunk = ids.slice(offset,offset+100);
-          const placeholders = chunk.map(()=>"?").join(",");
-          const result = await db.prepare("DELETE FROM moderation_logs WHERE id IN (" + placeholders + ")").bind(...chunk).run();
-          deleted += Number(result.meta?.changes || 0);
-        }
-        return reply({ok:true,deleted,requested:ids.length});
+        const item = await readBody(131072), active = await db.prepare("SELECT value FROM app_state WHERE key='active_session_id'").first();
+        if (!active?.value) return reply({ok:true,deleted:0,reason:"No active session"});
+        const requested = [...new Set((Array.isArray(item.ids)?item.ids:[]).map(value=>text(value,100).trim()).filter(Boolean))].slice(0,5000);
+        const all = requested.length ? await db.prepare("SELECT id,payload_json FROM moderation_logs").all() : {results:[]};
+        const ids = (all.results||[]).filter(row=>requested.includes(row.id)&&rowPayload(row).sessionId===active.value).map(row=>row.id);
+        let deleted=0;
+        for(let offset=0;offset<ids.length;offset+=100){const chunk=ids.slice(offset,offset+100),placeholders=chunk.map(()=>"?").join(",");const result=await db.prepare("DELETE FROM moderation_logs WHERE id IN ("+placeholders+")").bind(...chunk).run();deleted+=Number(result.meta?.changes||0);}
+        return reply({ok:true,deleted,requested:requested.length,sessionId:active.value});
       }
-
       if (url.pathname === "/modlogs" && request.method === "GET") {
-        const result = await db.prepare("SELECT payload_json FROM moderation_logs ORDER BY occurred_at DESC LIMIT 100").all();
-        return reply({ logs: (result.results || []).map(rowPayload) });
+        const active = await db.prepare("SELECT value FROM app_state WHERE key='active_session_id'").first();
+        if (!active?.value) return reply({logs:[],active:false});
+        const result = await db.prepare("SELECT payload_json FROM moderation_logs ORDER BY occurred_at DESC LIMIT 500").all();
+        const logs = (result.results||[]).map(rowPayload).filter(item=>item.sessionId===active.value).slice(0,100);
+        return reply({logs,active:true,sessionId:active.value});
       }
       if (url.pathname === "/modgate" && request.method === "POST") {
         const now = Date.now();
