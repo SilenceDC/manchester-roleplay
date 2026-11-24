@@ -168,6 +168,7 @@ test("Gateway heartbeats and recovery retries share a single non-overwriting ala
   assert.equal(nextAlarm({}), null);
   assert.match(bot, /async takeDueGatewayTasks/);
   assert.match(bot, /async mutateGatewayTasks/);
+  assert.equal((bot.match(/this\.ctx\.storage\.setAlarm\(/g) || []).length, 1, "all Gateway timers must go through the shared alarm scheduler");
   assert.match(bot, /dueTasks\.has\("heartbeat"\)[\s\S]*?awaitingAck/);
   assert.doesNotMatch(bot, /this\.ctx\.storage\.setAlarm\(Date\.now\(\) \+ this\.heartbeatInterval\)/);
   assert.match(bot, /const COMMANDS_VERSION = "texas-state-roleplay-commands-v4"/);
